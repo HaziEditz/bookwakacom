@@ -19,6 +19,7 @@
  * bookings work correctly even across re-checks.
  */
 
+import type { DataSnapshot } from "firebase-admin/database";
 import { getDatabase } from "./firebase";
 import { logger } from "./logger";
 
@@ -111,7 +112,7 @@ export function registerScheduledDispatch(record: ScheduledDispatchRecord) {
 
   db.ref(`/scheduledDispatch/${record.companyId}/${record.bookingId}`)
     .set(record)
-    .catch((err) =>
+    .catch((err: unknown) =>
       logger.error({ err, record }, "scheduler: failed to persist scheduledDispatch record")
     );
 
@@ -136,7 +137,7 @@ export function cancelScheduledDispatch(companyId: string, bookingId: string) {
   const db = getDatabase();
   db.ref(`/scheduledDispatch/${companyId}/${bookingId}`)
     .remove()
-    .catch((err) =>
+    .catch((err: unknown) =>
       logger.error({ err, companyId, bookingId }, "scheduler: failed to remove scheduledDispatch record on cancel")
     );
 
@@ -158,8 +159,8 @@ export async function initScheduler() {
     }
 
     let count = 0;
-    snap.forEach((companySnap) => {
-      companySnap.forEach((bookingSnap) => {
+    snap.forEach((companySnap: DataSnapshot) => {
+      companySnap.forEach((bookingSnap: DataSnapshot) => {
         const record = bookingSnap.val() as ScheduledDispatchRecord;
         if (record?.notifyAt) {
           armTimer(record.companyId, record.bookingId, new Date(record.notifyAt));
