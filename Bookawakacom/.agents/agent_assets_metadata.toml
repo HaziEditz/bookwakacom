@@ -1,0 +1,50 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "n_1rkkeH8FZHFJj-V8-a-"
+uri = "file://artifacts/invercargill-taxis/public/images/hero-bg.png"
+type = "image"
+title = "NZ landscape road with modern van"
+
+[[generated]]
+id = "ZOC-jv2Imb0cNA9sV24ta"
+uri = "file://artifacts/invercargill-taxis/public/images/taxi-interior.png"
+type = "image"
+title = "Clean modern van interior"
+
+[[generated]]
+id = "-Vn5yCAfvvCmwgmhVqxfX"
+uri = "file://artifacts/invercargill-taxis/public/images/invercargill-city.png"
+type = "image"
+title = "Sunny New Zealand town street"
+
+[[generated]]
+id = "Ljiks__U73c2BJdkieb8Q"
+uri = "file://artifacts/invercargill-taxis/public/images/hero-new.png"
+type = "image"
+title = "hero nz landscape transport"
+
+[[generated]]
+id = "krggndYHAOTWuxwtmjobG"
+uri = "file://artifacts/invercargill-taxis/public/images/taxi-service.png"
+type = "image"
+title = "taxi transport nz"
+
+[[generated]]
+id = "NSHRS_tAK0gG8yyvUWgT3"
+uri = "file://artifacts/invercargill-taxis/public/images/food-service.png"
+type = "image"
+title = "food delivery nz"
+
+[[generated]]
+id = "9m579U4RR0Gn-mQ4IYgcC"
+uri = "file://artifacts/invercargill-taxis/public/images/courier-service.png"
+type = "image"
+title = "courier delivery nz"
+
+[[generated]]
+id = "RqWiOfk8KoS6kS2tKGeJP"
+uri = "file://artifacts/invercargill-taxis/public/images/testimonials-bg.png"
+type = "image"
+title = "testimonials background nz"

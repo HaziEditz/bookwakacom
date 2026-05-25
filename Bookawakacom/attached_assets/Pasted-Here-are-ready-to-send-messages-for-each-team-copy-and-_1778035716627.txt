@@ -1,0 +1,125 @@
+Here are ready-to-send messages for each team — copy and paste them directly.
+
+How the test session works
+You need all six apps connected to the same test company at the same time. Everyone joins a call (or group chat), runs through each scenario together, and marks their column ✅ or ❌ as they go. The SA portal coordinates and keeps the master score.
+
+Test company to use: whatever company ID all teams are already using in dev (e.g. 620611). Make sure everyone is pointed at taxilatest.firebaseio.com — not a personal Firebase project.
+
+Messages to send — copy each one to the relevant team
+Driver app dev
+BookaWaka — Pre-launch E2E test — what we need from you
+
+We're doing a cross-team live test before launch. Everyone joins at the same time and we run real bookings end to end. Here's what you need to have ready:
+
+Before the session:
+
+A test driver account logged into the driver app, connected to our shared test company
+The driver must be able to go online, receive a job offer, accept it, start the trip, and complete it
+GPS must be live (we'll confirm the dot moves on the dispatcher map)
+During the session we'll ask you to confirm:
+
+Driver receives the job offer from the dispatcher ✅/❌
+Driver GPS dot appears and moves on the dispatcher map ✅/❌
+Driver can complete the trip — fare, payment type, and timestamp written correctly ✅/❌
+Driver receives a TM job — extras.tmVoucherNo is visible in the job details ✅/❌
+Freight pickup confirmed (pickupConfirmed + timestamp written) ✅/❌
+Freight delivery completed (deliveryConfirmed + timestamp written) ✅/❌
+After trip: rating prompt appears and is written to Firebase ✅/❌
+Also needed from you before the session:
+Run firebase deploy --only database on your project to activate the updated rules for rideStatus and driverEarnings. Your smoke test showed 25/27 — those 2 will clear once the rules are deployed.
+
+Dispatcher dev
+BookaWaka — Pre-launch E2E test — what we need from you
+
+We're doing a cross-team live test before launch. Here's what you need ready:
+
+Before the session:
+
+Dispatcher logged in and connected to the shared test company
+A test driver visible on the map (GPS must be live)
+Ability to assign a job, recall a job, and close a job
+During the session we'll ask you to confirm:
+
+A booking from the passenger app appears in the queue ✅/❌
+A web booking from the website appears in pendingjobs and the queue ✅/❌
+A TM booking shows with the purple TM badge and voucher details visible ✅/❌
+Job assigned to driver — driver receives it on the driver app ✅/❌
+Driver GPS dot is live on the map and moves in real time ✅/❌
+Food order appears in the queue with green badge ✅/❌
+Freight order appears with orange badge ✅/❌
+Tow request triggers the red alert banner ✅/❌
+Trip closed by driver — dispatcher shows it as completed ✅/❌
+Session revoke: if SA suspends the company, dispatcher is signed out automatically ✅/❌
+Passenger app dev
+BookaWaka — Pre-launch E2E test — what we need from you
+
+We're doing a cross-team live test before launch. Here's what you need ready:
+
+Before the session:
+
+A test passenger account on the passenger app, connected to the shared test company
+During the session we'll ask you to confirm:
+
+Passenger books a taxi — booking appears in the dispatcher queue ✅/❌
+Driver assigned — passenger sees driver name and live GPS dot on map ✅/❌
+Trip completed — passenger sees receipt with correct fare and NZ time ✅/❌
+Rating submitted after trip ✅/❌
+Cancellation works — booking removed from dispatcher queue ✅/❌
+TM booking with voucher — voucher validated against the card registry ✅/❌
+Food order placed — status updates live (received → accepted → out for delivery → delivered) ✅/❌
+Freight booking — pickup confirmed and delivery confirmed show as status updates ✅/❌
+Push notification received when driver is assigned ✅/❌
+Website dev
+BookaWaka — Pre-launch E2E test — what we need from you
+
+We're doing a cross-team live test before launch. Here's what you need ready:
+
+Before the session:
+
+Website connected to the shared test company
+The booking form able to submit real bookings (not demo mode)
+During the session we'll ask you to confirm:
+
+Web booking submitted — appears in the dispatcher queue (check pendingjobs/{cid}) ✅/❌
+Web booking uses POST /api/job/create for the ID (no local generation) ✅/❌
+"Pay on arrival" is hidden when GET /api/payment-config?cid={cid} returns effectiveCash: false ✅/❌
+Operator registration submits to both onboardRequests/{refId} AND registrations/{refId} ✅/❌
+Contact form writes to contactInquiries/{inquiryId} with correct fields ✅/❌
+Restaurant listings load from fdRestaurants/{cid} ✅/❌
+All times shown to the user are in NZ time (not UTC) ✅/❌
+Owner portal dev
+BookaWaka — Pre-launch E2E test — what we need from you
+
+We're doing a cross-team live test before launch. Here's what you need ready:
+
+Before the session:
+
+Owner portal logged in for the shared test company
+During the session we'll ask you to confirm:
+
+After a taxi trip completes — revenue shows in the earnings dashboard ✅/❌
+After a food delivery completes — shows in food revenue ✅/❌
+After a freight delivery completes — shows in freight revenue, POD columns show pickup ✓ and delivered ✓ ✅/❌
+Driver payout amounts match what SA portal shows ✅/❌
+Cash payment trips show in cash totals ✅/❌
+Card payment trips show in card totals ✅/❌
+TM trip — subsidy amount correct, hoist fee shown separately ✅/❌
+Shift logs populate after driver starts and ends a shift ✅/❌
+All dates and times shown in NZ time (not UTC) ✅/❌
+Note: Net payout deduction (commission + card fees) is a parked feature — both portals ship it together when you're ready. Do not implement it unilaterally.
+
+What SA portal will do during the session
+Run the session and keep track of the score sheet
+After each trip: check completedJobs/{cid}, allbookings/{cid}, SA-MasterReport, SA-Payouts — confirm numbers match
+Check SA-Company.aspx shows correct pickup/dropoff addresses for both web and passenger app bookings
+Confirm session revoke works (suspend a company → check dispatcher and owner portal are kicked out)
+Confirm TM subsidy chain: trips/{cid} written → batch picks it up → council portal claim correct
+Suggested running order for the session (30–45 min total):
+
+Driver goes online → GPS appears on dispatcher map
+Passenger books taxi → dispatcher assigns → driver accepts → completes → all portals show revenue
+Website books taxi → appears in dispatcher queue → same completion flow
+TM booking end to end
+Food order end to end
+Freight delivery end to end (confirm POD columns)
+Session revoke test

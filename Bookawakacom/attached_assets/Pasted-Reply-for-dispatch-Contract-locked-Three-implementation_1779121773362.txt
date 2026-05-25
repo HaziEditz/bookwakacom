@@ -1,0 +1,20 @@
+Reply for dispatch:
+
+Contract locked. Three implementation questions before I open the IDE — answers let me both build the right thing AND name a cutover date.
+
+C1 — Driver-side writes to jobs/ Today the driver app writes to jobs/{cid}/{vid}/{drv} for ~18 reasons: set() DriverAccepted on accept, set() DriverDeclined on reject, remove() on Away/Suspend/Kick/cancel/complete/signout, update() joboffer/jobCount during transitions. Under the new contract:
+
+Option A: Driver stops writing to jobs/ entirely. Dispatch owns the node end-to-end. Accept/decline acks go via the existing API endpoints + online/{cid}/{vid} only. Dispatch remove()s the child when terminal.
+Option B: Driver still writes to its own bookingId child — e.g. set(jobs/{cid}/{vid}/{drv}/{bookingId}, { Status: 'DriverDeclined' }) — and dispatch reads that as the ack signal before removing.
+Strong preference for A — cleaner ownership, no listener-loop self-writes to filter out, fewer race conditions. Confirm A and I'll rip the 18 driver-side writes in this OTA.
+
+C2 — Reason coordination on onChildRemoved When dispatch remove()s a booking child, the driver app needs to know which of the six eventTypes caused it (so we can pick the right alert UX: silent for completed/recalled/reassigned vs "Job Cancelled" toast for cancelled). The notification + child-removed events can arrive in any order over a flaky link.
+
+Cleanest fix: dispatch writes eventType: '<reason>' into the bookingId child as the very last update() before the remove(). Firebase passes the last-known snapshot to onChildRemoved, so the driver reads eventType directly off the removed node — zero race window, no cross-listener coordination needed. The notification/{driverId} event becomes informational/redundant for this case (still useful for offer-modal close pre-accept).
+
+If you don't want to add that final update, I'll fall back to a "last-seen eventType per bookingId" ref keyed off the notification listener, but with a 2-second tolerance window which will occasionally guess wrong.
+
+C3 — Initial-attach replay When the driver app attaches onChildAdded to the parent node, Firebase fires it once per existing child. Driver app will dedup using the version map from 22bp (any child whose version we've already seen is silently no-op'd). Just confirm dispatch is fine with this — it means a freshly-installed-and-signed-in driver gets a synchronous burst of onChildAdded callbacks for their current bookings on first launch, which is what we want.
+
+Answer those three and I'll build + soak + propose a cutover Monday. Aiming end of next week.
+

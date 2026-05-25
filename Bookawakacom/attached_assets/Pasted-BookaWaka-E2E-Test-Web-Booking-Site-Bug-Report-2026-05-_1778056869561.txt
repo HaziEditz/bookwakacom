@@ -1,0 +1,23 @@
+BookaWaka E2E Test — Web Booking Site Bug Report (2026-05-06)
+These bugs were found during a solo end-to-end test run. Please fix and confirm when done.
+
+CRITICAL
+BUG 1 — Taxi ride booking not working Submitting a taxi ride booking from the web site does not create a job. Nothing appears in Firebase allbookings/{cid}. Fix: confirm POST /api/job/create on the SA portal is being called, the job ID returned is used, and the booking is written to Firebase correctly.
+
+BUG 2 — Food delivery booking not working Submitting a food delivery booking from the web site does not create a job.
+
+BUG 3 — Freight booking not working Submitting a freight booking from the web site does not create a job.
+
+BUG 4 — No booking confirmation email sent No confirmation email is sent to the customer after a booking is submitted. Note: the SA portal's email service (Resend) is now correctly configured — this was a platform-wide issue that has been fixed on the SA side. Web bookings need to call the SA portal email endpoint or send directly via Resend.
+
+HIGH
+BUG 5 — No cash payment option The cash payment option is not shown on the web booking form. Cash should be available for web bookings if bwConfig/paymentMethods/cashEnabled AND companySettings/{cid}/paymentMethods/cashEnabled are both true. Fix: read both flags before rendering payment options.
+
+BUG 6 — Payment flow — web bookings must be prepaid Web bookings should require payment (card) before the job is dispatched. No pay-on-arrival for web. The current flow may allow a booking to be placed without payment being completed. Fix: only write the job to Firebase and trigger dispatch after payment is confirmed. Do not dispatch on "pending" payment status.
+
+Web booking — Firebase field contract reminders
+All job IDs MUST come from POST /api/job/create on the SA portal. No local ID generation. Retry 3× on failure.
+Job record written to: allbookings/{cid}/{bookingId}
+Required booking fields: BookingId, PassengerName, PassengerPhone, PickAddress, DropAddress, ServiceType, Status: "Pending", CreatedAt, CreatedBy: "WEB", WebBooking: true
+Pickup/dropoff fields: pickupLocation: {address, lat, lng} and dropoffLocation: {address, lat, lng} (objects, not strings)
+Cash gating: hide cash if EITHER bwConfig/paymentMethods/cashEnabled OR companySettings/{cid}/paymentMethods/cashEnabled is false

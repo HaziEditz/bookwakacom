@@ -1,0 +1,29 @@
+What the website should check
+1. Phone normalisation on booking creation (critical)
+
+When a customer books, the phone gets stored on allbookings/{cid}/{bookingId}.passengerPhone.
+The driver app keys ratings by digits-only phone (+64 21 555 1234 → 64215551234).
+If the website stores the phone with +, spaces, or hyphens, the rating system can't link a booking back to the passenger's history.
+Ask: does the website strip the phone to digits-only before writing it to the booking? If not — fix it (one-liner: phone.replace(/\D/g, '')).
+2. Should the website show ratings? Probably no
+
+Driver-on-passenger ratings are private operator data — passengers shouldn't see scores about themselves.
+Skip surfacing it on the website. (Different from passenger-on-driver ratings, which can be public.)
+3. Watch-list / problem-passenger gating (optional)
+
+If a passenger has been flagged (e.g. ≥2 ratings ≤2 stars in 90 days), should the website auto-block their booking, flag it for manual review, or let it through silently?
+This is a business policy decision, not a tech one. Worth raising with you before anyone builds it. Blocking customers can backfire — most operators prefer silent flagging in dispatch instead.
+4. Account / business-account passengers
+
+If the website allows logged-in account customers, make sure their phone-on-file is also normalised the same way, so ratings link across multiple bookings.
+5. New Firebase rule check
+
+Once we add a security rule for passengerRatings/, the website doesn't need read access (it shouldn't read it). Just confirm the website never tries to.
+Short version to send to the website team
+Two things to check on the website side regarding the new passenger rating system:
+
+Phone normalisation — when a booking is created, is the passenger's phone stored as digits-only (no +, spaces, hyphens, brackets)? If not, please normalise before writing. The driver app keys ratings by digits-only phone, so any mismatch breaks the link.
+Confirm you don't display passenger ratings to customers — driver-on-passenger ratings are private operator data. The website should never read passengerRatings/. Just sanity-check this is the case.
+No other changes needed on your side. The new feature lives in the Owner Panel and (eventually) SA portal.
+
+That's all the website needs to worry about for now.

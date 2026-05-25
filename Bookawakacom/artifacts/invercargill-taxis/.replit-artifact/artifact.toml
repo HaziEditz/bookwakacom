@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "BookaWaka"
+version = "1.0.0"
+id = "artifacts/invercargill-taxis"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24275
+
+[services.development]
+run = "pnpm --filter @workspace/invercargill-taxis run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/invercargill-taxis", "run", "build" ]
+publicDir = "artifacts/invercargill-taxis/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24275"
+BASE_PATH = "/"

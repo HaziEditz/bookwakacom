@@ -1,0 +1,43 @@
+Found it. The booking IS in pendingjobs but has two problems I can see immediately:
+
+
+3 actions
+Two clear bugs found:
+
+No payment options — Firebase bwConfig/paymentMethods only has cashEnabled: true, no cardEnabled field. The web booking page sees no card option and cash-only shows incorrectly.
+Not in dispatch — Booking IS in pendingjobs but lat/lng are both 0 — the web booking page didn't send coordinates. Dispatch likely filters or crashes on 0,0 coordinates.
+Fixing both right now simultaneously:
+
+
+3 actions
+Now update the /api/payment-config endpoint to return cardEnabled too, so the web booking page can use it:
+
+
+10 actions
+Both fixes confirmed. Here's exactly what was wrong and what's been done:
+
+Problem 1 — No payment options
+cardEnabled was missing from Firebase. Fixed — /api/payment-config now returns:
+
+{ "cashEnabled": true, "cardEnabled": true, "effectiveCash": true }
+
+The web booking page should call this endpoint on load and show Cash if effectiveCash: true and Card if cardEnabled: true.
+
+Problem 2 — Not showing in dispatch
+Your booking IS in the dispatch queue but lat/lng were both 0 — the web booking page captured the address text but not the coordinates from Google Maps. The test booking has been manually patched with the correct Invercargill coordinates so it should now appear on the dispatch map.
+
+Send this to the web booking team:
+
+Two bugs found from live test booking 62061126050610:
+
+Card payment not showing — cardEnabled was missing from bwConfig/paymentMethods. It's now set to true. Your page should call GET /api/payment-config?cid=620611 and show the Card option when cardEnabled: true is returned.
+
+Coordinates are 0,0 — Your Google Maps autocomplete is capturing address text but not lat/lng. After place_changed fires you must do:
+
+const place = autocomplete.getPlace();
+const lat = place.geometry.location.lat();
+const lng = place.geometry.location.lng();
+
+Include lat and lng inside pickupLocation and dropoffLocation in the booking payload. Without coordinates, dispatch can't place the pin on the map.
+
+Check the dispatch app now — booking 62061126050610 (165 Inglewood Rd → Invercargill Airport) should be visible with a map pin. Let me know what you see.

@@ -1,0 +1,69 @@
+📨 Answers from SA Portal dev → Customer Web dev
+Q1 — SA Portal /api/admin/* namespace & CORS
+A: No cross-Replit calls between Customer Web and SA Portal. Both write directly to Firebase RTDB — that's the integration layer. SA Portal's /api/admin/* exists today but it's exclusively for the SA admin UI (the ASPX pages), not a public API surface.
+
+You don't need: CORS allow-lists for SA Portal, or shared auth between Customer Web ↔ SA Portal.
+
+You DO need cross-Replit calls for these (each has its own auth pattern, no CORS issue because they're server-to-server):
+
+POST {dispatch}/api/job/create — for Job ID generation (already in jobId.ts)
+POST {external-reg}/admin/registrations/* — only if you build operator-signup tooling (you won't, that's their lane)
+Future-proofing: if SA Portal ever needs to call Customer Web (e.g. wallet read-only — see Q4), we'll use the existing X-Admin-Key: $BW_ADMIN_KEY header pattern. Server-to-server, no CORS, simple.
+
+Q2 — requireAppAuth on /api/passenger/*
+A: Yes, add it — but not immediately. Phase it in.
+
+Phase A (now, pre-mobile-app launch): keep the existing field-level auth — phone last-4 for tow cancel, cancelToken/email for rental cancel. Adequate for the existing surface.
+Phase B (when mobile app ships): add requireAppAuth middleware that verifies a Firebase ID token from the Authorization: Bearer <idToken> header. Apply to write endpoints (/book, /cancel, /payment-intent); leave read endpoints (/search, /track, /booking/:id) public-but-rate-limited so the website can keep using them without an auth dance.
+Firebase Auth project: SAME taxilatest tenant. One Firebase project for everything — driver app, passenger app, owner portals, web booking all live in taxilatest. Reasons:
+
+Driver app already authenticates against taxilatest
+Driver↔passenger rating/messaging needs both to share a UID space
+Single source of truth for passengerProfiles/{uid} records
+Distinguish passengers via custom claim role: 'passenger' (or absence of any role claim = passenger by default), driver via role: 'driver'. SA Portal sets these via Firebase Admin SDK at account creation. No second tenant.
+
+Q3 — Booking status enum (canonical list)
+Your list is missing 3 important states. Here's the full canonical list as the platform actually emits:
+
+State	Emitted by	Notes
+Scheduled	Passenger app, web booking	Future booking
+Pending	Dispatch	Created, waiting for driver
+PendingPayment ⚠️	Passenger app, web booking	Card bookings awaiting Stripe confirm — §111 in replit.md. Don't skip this one.
+Assigned	Dispatch + driver app	Both write at offer-accept
+Accepted	(alias for Assigned in some code paths)	Treat same as Assigned
+EnRoute	Driver app	Driver heading to pickup
+OnTrip / Started	Driver app	Passenger in vehicle (both used)
+Arrived	Driver app	At pickup
+Declined ⚠️	Driver app	Driver declined the offer — goes back to dispatch for reassignment
+Reassigned	Dispatch	Job moved to another driver
+NoShow	Driver app	Passenger didn't appear
+Completed	Driver app	Trip finished
+Cancelled	Dispatch, driver app, passenger app, SA Portal	⚠️ both casings exist: Cancelled (uppercase, dispatch convention) AND cancelled (lowercase, passenger app convention). FILTER ON BOTH. Gotcha documented in replit.md.
+Closed	(not currently emitted — safe to include for future use)	
+Field name caveat: records may carry status (lowercase) AND Status (uppercase) simultaneously — driver app + dispatch sometimes write both. Read status || Status and write both on updates if you want max compatibility.
+
+Q4 — Wallet ownership
+A: Customer Web owns the wallet end-to-end. SA Portal does NOT own wallet writes. Final layout:
+
+Customer Web: owns passengerWallet/{uid} reads + writes. Owns top-up, spend-at-booking, withdraw-to-card flows. Owns wallet transaction log at walletLedger/{uid}/{txId}.
+Customer Web exposes: GET /api/admin/wallet/balance/:uid, GET /api/admin/wallet/ledger/:uid, GET /api/admin/wallet/reconciliation?from=&to= — all read-only, protected by X-Admin-Key: $BW_ADMIN_KEY.
+SA Portal: pulls those endpoints and renders SA-Wallet.aspx (reconciliation report, balance lookups for support tickets, ledger viewer). SA staff CAN issue manual adjustments via POST /api/admin/wallet/adjust (also on Customer Web, also X-Admin-Key) — but the write physically happens in Customer Web. SA Portal is just the UI.
+Why this split:
+
+Single writer for wallet = no race conditions, no double-spend bugs
+Reconciliation logic lives next to the source of truth
+SA Portal stays admin-only, no business logic creep
+Same pattern as Food Delivery completion (§114 in replit.md) — one Replit owns the math, the other reads + displays
+Path map confirmation
+All Firebase paths you listed are correct:
+
+✅ pendingjobs, allbookings, Passengerjobs, passengerWallet, passengerIndex, onboardRequests, registrations, towRequests, contactInquiries, companyProfiles, bwConfig, tariffs, vehicles, fdRestaurants
+
+One add: when you build food ordering, use foodOrders/{cid}/{orderId} (NOT a top-level foodOrders) — already cemented by §114 (food-delivery-complete endpoint). Menu items at foodMenu/{rid}/items/{iid} with the variants/modifiers schema documented in replit.md gotchas.
+
+On the /api/passenger mount
+Your dual-mount approach (app.use('/api', router) + app.use('/api/passenger', router)) is fine for now but creates a long-term naming ambiguity:
+
+/api/companies and /api/passenger/companies both work — drift risk over time
+Two paths into the same handler = two surfaces to monitor, two URLs in mobile-app code review
+Suggestion (not blocking): once mobile app is in production, split into two distinct routers — publicRouter (website) and passengerRouter (mobile-only, gets requireAppAuth from Q2). Same handlers can be factored into shared service functions called by both routers. No rush — your current setup is backward-safe and unblocks shipping.

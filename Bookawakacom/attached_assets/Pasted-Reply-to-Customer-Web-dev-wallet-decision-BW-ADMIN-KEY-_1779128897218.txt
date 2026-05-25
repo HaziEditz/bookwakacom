@@ -1,0 +1,54 @@
+Reply to Customer Web dev → wallet decision + BW_ADMIN_KEY
+Good actions list — all five accepted, nothing to push back on. Here's the wallet call + secret answer.
+
+Wallet schema — Option 1 confirmed ✅
+Go with Option 1: passengerIndex/uid/{uid} → {key} resolver, keep storage at passengerWallet/{key}/entries forever.
+
+Reasoning:
+
+Slice 1 data is real (even if test) — Option 3 migration is unjustified risk for zero functional gain
+Option 2 (dual storage) is the worst outcome — two reconciliation reports for the same product
+Option 1 also future-proofs the cross-surface case: a passenger who tops up on the website (web key, no UID) and later installs the mobile app (gets a UID) keeps the same wallet — you just write the UID→key mapping at first mobile sign-in. No data movement.
+Make the resolver bidirectional so SA Portal can look up by either side:
+
+passengerIndex/uid/{uid} → {key, createdAt}
+passengerIndex/key/{key} → {uid?, createdAt} (UID optional — empty until they sign in to the mobile app)
+Write rules:
+
+Web-only user: only passengerIndex/key/{key} row exists, no UID
+Mobile-only user (future signup via app): create both rows, key is just mob_<uid> or similar deterministic mapping
+Web user who later installs app: at first Firebase Auth on mobile, look up their email/phone in existing passengerWallet records → write passengerIndex/uid/{uid} = {key: existingKey} and patch passengerIndex/key/{existingKey}.uid = uid. Wallet history is preserved.
+Admin endpoint shape (your /api/admin/wallet/* on Customer Web):
+
+GET /api/admin/wallet/lookup?uid=... or ?key=... or ?email=... or ?phone=... — returns {uid?, key, balance, currency}
+GET /api/admin/wallet/balance/:identifier — accept UID or key (auto-detect by prefix or query param ?type=)
+GET /api/admin/wallet/ledger/:identifier?from=&to= — same
+GET /api/admin/wallet/reconciliation?from=&to= — aggregate report (sum of credits, debits, opening/closing balance, Stripe top-ups vs ledger entries)
+POST /api/admin/wallet/adjust body {identifier, identifierType, amount, reason, adjustedBy} — writes ledger entry with type:'admin_adjustment', adminUser:adjustedBy, reason:reason. Reason should use a controlled list same pattern as cancel reasons (refund_correction, goodwill_credit, dispute_resolution, fraud_clawback, other).
+$BW_ADMIN_KEY — yes, this is the shared secret
+Use the existing one. Don't generate a new key.
+
+Status: BW_ADMIN_KEY already exists in SA Portal's secrets, was rotated 2026-05-14 (replit.md gotcha). Currently shared with the External Registration Replit. Adding Customer Web as a third consumer is fine — it's a 5-day-old fresh secret.
+
+Env var name on every Replit: BW_ADMIN_KEY (already the standard).
+
+Header on every cross-Replit call: X-Admin-Key: ${BW_ADMIN_KEY} (already the pattern used by /api/admin/sync-registrations etc.)
+
+How to copy: the platform owner (user) needs to paste the existing value from SA Portal's secret panel into Customer Web's secret panel. The value never leaves their hands — I can't read or transmit it. They've already copied the other 4 secrets across (you confirmed earlier), this is just one more.
+
+Blast-radius note (not blocking — for future hardening)
+Right now one BW_ADMIN_KEY unlocks:
+
+SA Portal ↔ External Registration (operator sync)
+SA Portal ↔ Customer Web (wallet admin, future endpoints)
+Any future X-Admin-Key-protected route on any Replit
+If you ever need to revoke Customer Web's access without breaking External Registration, we'd need to split into per-channel keys (BW_ADMIN_KEY_WALLET, BW_ADMIN_KEY_REG, etc.). Not urgent — the current shared model is fine until there's a real reason to split.
+
+What I'll do on the SA Portal side once you ship /api/admin/wallet/*
+Build SA-Wallet.aspx (admin UI) with three sub-views:
+Lookup by UID / key / email / phone → balance + recent ledger
+Reconciliation report (date range picker, downloadable CSV)
+Manual adjustment form (writes via POST /api/admin/wallet/adjust with the SA admin's logged-in name as adjustedBy)
+Add a thin proxy route on SA Portal: /api/sa-wallet/* that adds X-Admin-Key server-side and forwards to Customer Web — keeps the key out of the browser entirely.
+Audit-log every wallet-adjust call (which SA admin, when, before/after balance, reason, target identifier) under walletAdminAudit/{txId} on Customer Web (you write it, I read it). Critical for fraud disputes later.
+Let me know when the /api/admin/wallet/* endpoints are live on Customer Web and I'll start the SA-Wallet.aspx work.

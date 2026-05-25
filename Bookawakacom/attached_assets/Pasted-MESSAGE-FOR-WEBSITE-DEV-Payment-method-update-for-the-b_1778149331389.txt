@@ -1,0 +1,37 @@
+MESSAGE FOR WEBSITE DEV:
+
+Payment method update for the booking flow. Please make these changes:
+
+Remove cash completely from the payment options — don't show it, don't write it
+
+Add these payment methods alongside Card:
+
+Account — passenger enters their account number. Before confirming, check accountClients/{cid}/{accountNumber} in Firebase — must be status: active
+ACC — passenger enters their ACC claim number. Check accClients/{cid}/{claimNumber} — must be active and within allocation
+Total Mobility (TM) — passenger enters their TM card/voucher number. Verify against TM allocation
+Gift Card — passenger enters a voucher code. Check giftCards/{cid}/{code} — balance must cover the estimated fare
+Write to the booking record in pendingjobs:
+
+paymentMethod: "card" / "account" / "acc" / "tm" / "giftcard"
+accountNumber: the number they entered (for account and ACC)
+tmVoucherNumber: for TM bookings
+giftCardCode: for gift card bookings
+Also make sure PassengerEmail is included in every booking record — the SA server sends the confirmation email using that field.
+
+MESSAGE FOR PASSENGER APP DEV:
+
+Same payment method changes as the website — please apply the same update:
+
+Remove cash from the payment selection screen
+Add Account, ACC, Total Mobility, and Gift Card as options — each shows its own input field for the relevant number/code
+Validate the number against Firebase before confirming
+Write paymentMethod + the reference field to the booking record (same field names as above)
+Cash stays available in the driver app only — for hail passengers paying in person.
+
+MESSAGE FOR DRIVER APP DEV:
+
+No removal on your side — keep all payment methods. The driver app must support:
+
+Cash, Card, Account, ACC, Total Mobility (TM), Gift Card
+
+Drivers need all of these because they handle hail passengers in person and may need to manually process any payment type at the vehicle — including overriding whatever the passenger originally selected when they pre-booked.
