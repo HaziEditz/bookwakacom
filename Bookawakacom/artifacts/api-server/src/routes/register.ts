@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getDatabase } from "../lib/firebase";
+import { getDatabase, getAuth } from "../lib/firebase";
 import { getUncachableResendClient } from "../lib/resend";
 
 const registerRouter = Router();
@@ -14,15 +14,16 @@ function generateRef(): string {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  taxi: "Taxi Company",
-  restaurant: "Restaurant / Food Delivery",
-  courier: "Courier / Freight",
-  rental: "Rental Cars",
-  towing: "Towing & Recovery",
+  taxi: "Taxi",
+  food: "Food Delivery",
+  freight: "Freight",
+  towing: "Towing",
+  rental: "Rental",
 };
 
 registerRouter.post("/register", async (req, res) => {
   const {
+    serviceTypes,
     businessTypes,
     businessName,
     contactName,
@@ -30,8 +31,9 @@ registerRouter.post("/register", async (req, res) => {
     phone,
     city,
     country,
-    message,
+    password,
   } = req.body as {
+    serviceTypes?: string[];
     businessTypes?: string[];
     businessName?: string;
     contactName?: string;
@@ -39,53 +41,94 @@ registerRouter.post("/register", async (req, res) => {
     phone?: string;
     city?: string;
     country?: string;
-    message?: string;
+    password?: string;
   };
 
-  if (!businessTypes?.length || !businessName || !contactName || !email || !phone || !city) {
+  const types = serviceTypes ?? businessTypes ?? [];
+
+  if (!types.length || !businessName || !contactName || !email || !phone || !city || !password) {
     res.status(400).json({ error: "All required fields must be filled in" });
     return;
   }
 
-  const typeLabel = businessTypes.map((t) => TYPE_LABELS[t] ?? t).join(", ");
-  const serviceType = businessTypes.join(",");
+  if (password.length < 6) {
+    res.status(400).json({ error: "Password must be at least 6 characters" });
+    return;
+  }
+
+  const typeLabel = types.map((t) => TYPE_LABELS[t] ?? t).join(", ");
+  const serviceType = types.join(",");
   const refId = generateRef();
   const submittedAt = new Date().toISOString();
+
+  let authUid: string | undefined;
+
+  try {
+    const auth = getAuth();
+    const userRecord = await auth.createUser({
+      email,
+      password,
+      displayName: contactName,
+    });
+    authUid = userRecord.uid;
+  } catch (err: any) {
+    const code = err?.code ?? err?.errorInfo?.code;
+    if (code === "auth/email-already-exists") {
+      res.status(409).json({ error: "An account with this email already exists" });
+      return;
+    }
+    if (code === "auth/invalid-email") {
+      res.status(400).json({ error: "Invalid email address" });
+      return;
+    }
+    if (code === "auth/weak-password") {
+      res.status(400).json({ error: "Password is too weak. Use at least 6 characters." });
+      return;
+    }
+    req.log.error({ err }, "Failed to create Firebase Auth user");
+    res.status(500).json({ error: "Failed to create account. Please try again." });
+    return;
+  }
 
   const record = {
     ref: refId,
     submittedAt,
     status: "pending",
     businessName,
+    companyName: businessName,
     contactName,
+    ownerName: contactName,
     email,
     phone,
     city,
     country: country ?? "New Zealand",
     serviceType,
-    businessTypes,
-    message: message ?? "",
+    serviceTypes: types,
+    businessTypes: types,
+    authUid,
     source: "website",
   };
 
   try {
-    // Write to both paths — SA portal previously confirmed onboardRequests/ but
-    // also mentions registrations/{id}. Writing to both until the canonical path is confirmed.
     const db = getDatabase();
     await Promise.all([
       db.ref(`onboardRequests/${refId}`).set(record),
       db.ref(`registrations/${refId}`).set(record),
     ]);
 
-    req.log.info({ refId, businessName, serviceType }, "Operator registration saved");
+    req.log.info({ refId, businessName, serviceType, authUid }, "Operator registration saved");
   } catch (err: any) {
     req.log.error({ err }, "Failed to write registration to Firebase");
+    try {
+      if (authUid) await getAuth().deleteUser(authUid);
+    } catch (rollbackErr) {
+      req.log.error({ rollbackErr }, "Failed to roll back auth user after RTDB error");
+    }
     res.status(500).json({ error: "Failed to save registration. Please try again." });
     return;
   }
 
-  // Send emails fire-and-forget — don't block the response on email
-  sendRegistrationEmails({ record, typeLabel, email, businessName }).catch((e) =>
+  sendRegistrationEmails({ record, typeLabel, email, businessName, contactName }).catch((e) =>
     req.log.error({ e }, "Registration email failed")
   );
 
@@ -97,11 +140,13 @@ async function sendRegistrationEmails({
   typeLabel,
   email,
   businessName,
+  contactName,
 }: {
-  record: any;
+  record: Record<string, unknown>;
   typeLabel: string;
   email: string;
   businessName: string;
+  contactName: string;
 }) {
   const { client } = await getUncachableResendClient();
 
@@ -111,14 +156,13 @@ async function sendRegistrationEmails({
       <p style="color:#666;margin-top:0;margin-bottom:24px;">via BookaWaka registration portal</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;width:140px;">Ref</td><td style="padding:8px 0;color:#555;font-family:monospace;">${record.ref}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Business Type</td><td style="padding:8px 0;color:#555;">${typeLabel}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Business Name</td><td style="padding:8px 0;color:#555;">${record.businessName}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Contact Name</td><td style="padding:8px 0;color:#555;">${record.contactName}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Service Types</td><td style="padding:8px 0;color:#555;">${typeLabel}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Company Name</td><td style="padding:8px 0;color:#555;">${record.businessName}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Owner Name</td><td style="padding:8px 0;color:#555;">${record.contactName}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Email</td><td style="padding:8px 0;color:#555;">${record.email}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Phone</td><td style="padding:8px 0;color:#555;">${record.phone}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Location</td><td style="padding:8px 0;color:#555;">${record.city}, ${record.country}</td></tr>
-        ${record.message ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;vertical-align:top;">Message</td><td style="padding:8px 0;color:#555;">${record.message}</td></tr>` : ""}
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Submitted</td><td style="padding:8px 0;color:#555;">${new Date(record.submittedAt).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland" })}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Submitted</td><td style="padding:8px 0;color:#555;">${new Date(record.submittedAt as string).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland" })}</td></tr>
       </table>
     </div>
   `;
@@ -133,12 +177,14 @@ async function sendRegistrationEmails({
   await client.emails.send({
     from: "BookaWaka <onboarding@resend.dev>",
     to: [email],
-    subject: `We've received your application — ${businessName}`,
+    subject: `Your BookaWaka application has been received — ${businessName}`,
     html: `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-        <h2 style="color:#0a6b6b;">Application received!</h2>
-        <p>Thanks for registering <strong>${businessName}</strong> as a <strong>${typeLabel}</strong> on the BookaWaka platform. We'll review your application and be in touch within 1–2 business days.</p>
-        ${detailTable}
+        <h2 style="color:#0a6b6b;">Application submitted</h2>
+        <p>Hi ${contactName},</p>
+        <p>Thank you for registering <strong>${businessName}</strong> on the BookaWaka platform.</p>
+        <p><strong>Your application has been submitted. We will review and approve your account within 24 hours.</strong></p>
+        <p>Your reference number is <strong style="font-family:monospace;">${record.ref}</strong>. Service types: ${typeLabel}.</p>
         <p style="color:#666;font-size:13px;margin-top:24px;">Questions? Reply to this email or visit <a href="https://bookawaka.com">bookawaka.com</a>.</p>
       </div>
     `,

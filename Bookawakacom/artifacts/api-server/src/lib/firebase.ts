@@ -73,3 +73,8 @@ export function getDatabase(): ReturnType<typeof admin.database> {
   getFirebaseAdmin();
   return admin.database();
 }
+
+export function getAuth(): ReturnType<typeof admin.auth> {
+  getFirebaseAdmin();
+  return admin.auth();
+}

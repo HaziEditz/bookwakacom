@@ -266,7 +266,7 @@ function Home() {
           </div>
 
           <div className="hidden lg:flex items-center gap-3">
-            <a href="https://bookawaka-dispatch-system.replit.app/DispatcherLogin.aspx" target="_blank" rel="noopener noreferrer">
+            <a href={`${import.meta.env.BASE_URL}register`}>
               <Button variant="outline" className={`rounded-full font-extrabold tracking-wide px-5 border-2 ${isScrolled ? "border-primary text-primary hover:bg-primary hover:text-white" : "border-white/60 text-white hover:bg-white/10"}`} data-testid="nav-btn-register">
                 Join as Operator
               </Button>
@@ -298,7 +298,7 @@ function Home() {
             <a href="#contact" className="text-lg font-bold text-foreground" onClick={() => setMobileMenuOpen(false)}>Contact</a>
             <a href={`${import.meta.env.BASE_URL}my-rides`} className="text-lg font-bold text-foreground" onClick={() => setMobileMenuOpen(false)}>My Rides</a>
             <hr className="border-border" />
-            <a href="https://bookawaka-dispatch-system.replit.app/DispatcherLogin.aspx" target="_blank" rel="noopener noreferrer" onClick={() => setMobileMenuOpen(false)}>
+            <a href={`${import.meta.env.BASE_URL}register`} onClick={() => setMobileMenuOpen(false)}>
               <Button size="lg" variant="outline" className="w-full border-2 border-primary text-primary hover:bg-primary hover:text-white rounded-full font-bold" data-testid="nav-mobile-register">
                 Join as Operator
               </Button>
@@ -763,7 +763,7 @@ function Home() {
                 </div>
                 
                 <div className="flex items-center gap-6">
-                  <a href="#operators" data-testid="btn-about-operators">
+                  <a href={`${import.meta.env.BASE_URL}register`} data-testid="btn-about-operators">
                     <Button size="xl" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full h-14 px-8 font-bold shadow-md">
                       Join the Platform
                     </Button>
@@ -903,7 +903,7 @@ function Home() {
                 </div>
               </div>
               <div className="flex flex-col gap-4 flex-shrink-0">
-                <a href="https://bookawaka-dispatch-system.replit.app/DispatcherLogin.aspx" target="_blank" rel="noopener noreferrer">
+                <a href={`${import.meta.env.BASE_URL}register`}>
                   <Button size="xl" className="bg-accent text-accent-foreground hover:bg-white rounded-full h-16 px-10 text-lg font-extrabold shadow-xl whitespace-nowrap" data-testid="btn-operator-signup">
                     Get Started as an Operator
                     <ArrowRight className="w-5 h-5 ml-3" />
