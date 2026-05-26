@@ -17,34 +17,34 @@ let app: any = null;
 
 function getCredentials(): { projectId: string; clientEmail: string; privateKey: string } {
   // First try: FIREBASE_PRIVATE_KEY might contain the full service account JSON
-  const raw = process.env.FIREBASE_PRIVATE_KEY ?? "";
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const raw = privateKey ?? "";
 
   if (raw.trim().startsWith("{")) {
     try {
       const sa = JSON.parse(raw);
-      const privateKey = (sa.private_key as string).replace(/\\n/g, "\n");
+      const parsedPrivateKey = (sa.private_key as string).replace(/\\n/g, "\n");
       return {
         projectId: sa.project_id,
         clientEmail: sa.client_email,
-        privateKey,
+        privateKey: parsedPrivateKey,
       };
     } catch {
       // fall through to individual vars
     }
   }
 
-  // Second try: individual env vars
-  const privateKey = raw.replace(/\\n/g, "\n");
+  // Second try: individual env vars (privateKey already has literal newlines)
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL ?? "";
   const projectId = process.env.FIREBASE_PROJECT_ID ?? FIREBASE_CONFIG.projectId;
 
-  if (!privateKey || !clientEmail || !projectId) {
+  if (!raw || !clientEmail || !projectId) {
     throw new Error(
       "Firebase credentials not configured. Set FIREBASE_PRIVATE_KEY (service account JSON or key), FIREBASE_CLIENT_EMAIL, FIREBASE_PROJECT_ID."
     );
   }
 
-  return { projectId, clientEmail, privateKey };
+  return { projectId, clientEmail, privateKey: raw };
 }
 
 function getDatabaseURL(projectId: string): string {
