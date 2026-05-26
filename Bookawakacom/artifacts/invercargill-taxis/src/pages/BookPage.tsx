@@ -40,6 +40,31 @@ interface Company {
   country?: string;
 }
 
+function normalizeServices(services: unknown): string[] {
+  if (Array.isArray(services)) {
+    return services.map((s) => String(s).trim()).filter(Boolean);
+  }
+  if (typeof services === "string") {
+    return services.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return ["taxi"];
+}
+
+function normalizeCompanies(raw: unknown): Company[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((c): c is Record<string, unknown> => c != null && typeof c === "object")
+    .map((c) => ({
+      id: String(c.id ?? ""),
+      name: String(c.name ?? `Company ${c.id ?? ""}`),
+      services: normalizeServices(c.services),
+      description: c.description != null ? String(c.description) : undefined,
+      city: c.city != null ? String(c.city) : undefined,
+      country: c.country != null ? String(c.country) : undefined,
+    }))
+    .filter((c) => c.id);
+}
+
 interface NominatimResult {
   display_name: string;
   place_id: number;
@@ -338,7 +363,7 @@ export default function BookPage() {
     fetch(`${import.meta.env.BASE_URL}api/companies`)
       .then((r) => r.json())
       .then((d) => {
-        const list: Company[] = d.companies ?? [];
+        const list = normalizeCompanies(d.companies);
         setCompanies(list);
         // Pre-fill from ?cid=&service=&pickup=&drop= (set by "Book again" from My Rides)
         const params = new URLSearchParams(window.location.search);
@@ -788,13 +813,13 @@ export default function BookPage() {
                   <Loader2 className="w-5 h-5 animate-spin" />
                   <span className="font-medium">Loading available companies…</span>
                 </div>
-              ) : companies.length === 0 ? (
+              ) : (Array.isArray(companies) ? companies : []).length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                   <p className="font-medium">No companies are available right now. Please try again later.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {companies.map((c) => (
+                  {(Array.isArray(companies) ? companies : []).map((c) => (
                     <button
                       key={c.id}
                       onClick={() => {
