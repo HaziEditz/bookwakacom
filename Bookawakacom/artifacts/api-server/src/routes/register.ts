@@ -71,8 +71,20 @@ registerRouter.post("/register", async (req, res) => {
       displayName: contactName,
     });
     authUid = userRecord.uid;
-  } catch (err: any) {
-    const code = err?.code ?? err?.errorInfo?.code;
+  } catch (err: unknown) {
+    const authErr = err as {
+      code?: string;
+      message?: string;
+      errorInfo?: { code?: string; message?: string };
+    };
+    const code = authErr?.code ?? authErr?.errorInfo?.code ?? "unknown";
+    const message = authErr?.message ?? authErr?.errorInfo?.message ?? String(err);
+
+    req.log.error(
+      { code, message, email, err },
+      `Firebase Auth user creation failed: ${code} — ${message}`,
+    );
+
     if (code === "auth/email-already-exists") {
       res.status(409).json({ error: "An account with this email already exists" });
       return;
@@ -85,7 +97,6 @@ registerRouter.post("/register", async (req, res) => {
       res.status(400).json({ error: "Password is too weak. Use at least 6 characters." });
       return;
     }
-    req.log.error({ err }, "Failed to create Firebase Auth user");
     res.status(500).json({ error: "Failed to create account. Please try again." });
     return;
   }
