@@ -190,6 +190,9 @@ importers:
       firebase-admin:
         specifier: ^13.8.0
         version: 13.8.0
+      mailersend:
+        specifier: ^2.8.0
+        version: 2.8.0
       pino:
         specifier: ^9
         version: 9.14.0
@@ -2929,6 +2932,9 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  mailersend@2.8.0:
+    resolution: {integrity: sha512-jpv6avO0/D1hyNkVuAT1bG99+j+nTxLlUDF1t5WYhIMuOXtTaI5LUj77AtXVCEUUBfJWPtmFNQ1yCVQIhDkmuA==}
 
   markdown-it@14.1.1:
     resolution: {integrity: sha512-BuU2qnTti9YKgK5N+IeMubp14ZUKUUw7yeJbkjtosvHiP0AZ5c8IAgEMk79D0eC8F23r4Ac/q8cAIFdm2FtyoA==}
@@ -6375,6 +6381,13 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  mailersend@2.8.0:
+    dependencies:
+      gaxios: 7.1.4
+      qs: 6.15.0
+    transitivePeerDependencies:
+      - supports-color
 
   markdown-it@14.1.1:
     dependencies:

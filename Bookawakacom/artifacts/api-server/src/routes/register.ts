@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDatabase, getAuth } from "../lib/firebase";
-import { getUncachableResendClient } from "../lib/resend";
+import { sendMailerSendEmail } from "../lib/mailersend";
 
 const registerRouter = Router();
 
@@ -148,8 +148,6 @@ async function sendRegistrationEmails({
   businessName: string;
   contactName: string;
 }) {
-  const { client } = await getUncachableResendClient();
-
   const detailTable = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
       <h2 style="color:#0a6b6b;margin-bottom:4px;">New Operator Registration</h2>
@@ -167,16 +165,15 @@ async function sendRegistrationEmails({
     </div>
   `;
 
-  await client.emails.send({
-    from: "BookaWaka Registrations <onboarding@resend.dev>",
-    to: ["info@bookawaka.com"],
+  await sendMailerSendEmail({
+    to: [{ email: "info@bookawaka.com", name: "BookaWaka Admin" }],
     subject: `[New Operator] ${businessName} — ${typeLabel}`,
     html: detailTable,
+    fromName: "BookaWaka Registrations",
   });
 
-  await client.emails.send({
-    from: "BookaWaka <onboarding@resend.dev>",
-    to: [email],
+  await sendMailerSendEmail({
+    to: [{ email, name: contactName }],
     subject: `Your BookaWaka application has been received — ${businessName}`,
     html: `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
