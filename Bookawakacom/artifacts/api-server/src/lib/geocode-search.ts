@@ -14,6 +14,7 @@ export interface NominatimHit {
   name?: string;
   type?: string;
   class?: string;
+  address?: Record<string, string>;
 }
 
 function mergeHits(primary: NominatimHit[], secondary: NominatimHit[], max: number): NominatimHit[] {

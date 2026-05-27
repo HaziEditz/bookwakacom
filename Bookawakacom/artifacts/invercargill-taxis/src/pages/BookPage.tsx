@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "@/components/AddressInput";
-import BookingMapPanel, { isValidMapCoord, MAP_PANEL_HEIGHT_PX } from "@/components/BookingMapPanel";
+import BookingMapPanel from "@/components/BookingMapPanel";
 import {
   Car,
   Utensils,
@@ -1385,19 +1385,7 @@ export default function BookPage() {
                 </div>
 
                 <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8">
-                  {isValidMapCoord(pickCoords) && isValidMapCoord(dropCoords) ? (
-                    <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
-                  ) : (
-                    <div
-                      className="w-full rounded-[1.5rem] border border-dashed border-border bg-muted/30 flex flex-col items-center justify-center gap-3 p-8 text-center shadow-xl"
-                      style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX }}
-                    >
-                      <MapPin className="w-10 h-10 text-muted-foreground/40" />
-                      <p className="text-sm font-medium text-muted-foreground max-w-xs">
-                        Select pickup and drop-off from the address suggestions to see your route on the map.
-                      </p>
-                    </div>
-                  )}
+                  <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
                 </div>
               </div>
             </div>
