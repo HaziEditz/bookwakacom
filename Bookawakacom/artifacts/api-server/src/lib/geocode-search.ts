@@ -1,7 +1,10 @@
 const NOMINATIM_HEADERS = {
   "User-Agent": "BookaWaka/1.0 (info@bookawaka.com)",
-  "Accept-Language": "en-NZ,en",
+  "Accept-Language": "en",
 };
+
+const NOMINATIM_TIMEOUT_MS = 5000;
+const DEFAULT_VIEWBOX = "167,-47,170,-45"; // Invercargill area bias
 
 export interface NominatimHit {
   place_id: number;
@@ -42,10 +45,13 @@ async function nominatimSearch(
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("namedetails", "1");
   url.searchParams.set("dedupe", "1");
-  url.searchParams.set("viewbox", opts.viewbox ?? "166,-47,178,-34");
+  url.searchParams.set("viewbox", opts.viewbox ?? DEFAULT_VIEWBOX);
   url.searchParams.set("bounded", opts.bounded ?? "0");
 
-  const res = await fetch(url.toString(), { headers: NOMINATIM_HEADERS });
+  const res = await fetch(url.toString(), {
+    headers: NOMINATIM_HEADERS,
+    signal: AbortSignal.timeout(NOMINATIM_TIMEOUT_MS),
+  });
   if (!res.ok) return [];
   const data = (await res.json()) as NominatimHit[];
   return Array.isArray(data) ? data : [];
@@ -67,7 +73,7 @@ export async function searchNzPlaces(
   const limit = opts?.limit ?? 8;
   const searchOpts = {
     countrycodes: opts?.countrycodes ?? "nz",
-    viewbox: opts?.viewbox ?? "166,-47,178,-34",
+    viewbox: opts?.viewbox ?? DEFAULT_VIEWBOX,
     bounded: opts?.bounded ?? "0",
     limit,
   };

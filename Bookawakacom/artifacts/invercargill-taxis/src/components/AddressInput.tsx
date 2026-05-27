@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface NominatimResult {
@@ -19,10 +20,26 @@ function formatResultLabel(r: NominatimResult): string {
   return base.replace(/, New Zealand$/, "").replace(/,\s*\d{4}(?=,|$)/, "");
 }
 
+const MIN_SEARCH_LENGTH = 3;
+const SEARCH_TIMEOUT_MS = 5000;
+
+/** NZ-only search, biased toward Invercargill (centre -46.4132, 168.3538). */
 const NOMINATIM_COUNTRY_CODES = "nz";
 const NOMINATIM_BOUNDED = "0";
 const NOMINATIM_LIMIT = "8";
-const NOMINATIM_VIEWBOX = "166,-47,178,-34";
+const NOMINATIM_VIEWBOX = "167,-47,170,-45";
+
+/** Client-side URL → proxied to Nominatim on the API server. */
+function buildGeocodeSearchUrl(query: string): string {
+  const params = new URLSearchParams({
+    q: query,
+    countrycodes: NOMINATIM_COUNTRY_CODES,
+    bounded: NOMINATIM_BOUNDED,
+    limit: NOMINATIM_LIMIT,
+    viewbox: NOMINATIM_VIEWBOX,
+  });
+  return `${import.meta.env.BASE_URL}api/geocode?${params}`;
+}
 
 export default function AddressInput({
   id,
@@ -43,7 +60,9 @@ export default function AddressInput({
 }) {
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -51,26 +70,37 @@ export default function AddressInput({
     onChange(val);
     onCoordChange?.(0, 0);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (val.length < 3) {
+    abortRef.current?.abort();
+    abortRef.current = null;
+
+    if (val.trim().length < MIN_SEARCH_LENGTH) {
       setResults([]);
       setOpen(false);
+      setSearching(false);
       return;
     }
+
     debounceRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const timeoutId = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+      setSearching(true);
+
       try {
-        const params = new URLSearchParams({
-          q: val,
-          countrycodes: NOMINATIM_COUNTRY_CODES,
-          bounded: NOMINATIM_BOUNDED,
-          limit: NOMINATIM_LIMIT,
-          viewbox: NOMINATIM_VIEWBOX,
+        const res = await fetch(buildGeocodeSearchUrl(val.trim()), {
+          signal: controller.signal,
+          headers: { "Accept-Language": "en" },
         });
-        const res = await fetch(`${import.meta.env.BASE_URL}api/geocode?${params}`);
         const data: NominatimResult[] = await res.json();
         setResults(data);
         setOpen(data.length > 0);
       } catch {
-        /* silently ignore network errors */
+        /* silently ignore network/timeout errors */
+        setResults([]);
+        setOpen(false);
+      } finally {
+        clearTimeout(timeoutId);
+        setSearching(false);
       }
     }, 380);
   };
@@ -87,7 +117,11 @@ export default function AddressInput({
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      abortRef.current?.abort();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, []);
 
   return (
@@ -101,8 +135,11 @@ export default function AddressInput({
         placeholder={placeholder}
         required={required}
         autoComplete="off"
-        className="rounded-xl h-12"
+        className="rounded-xl h-12 pr-10"
       />
+      {searching && (
+        <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-muted-foreground pointer-events-none" />
+      )}
       {open && results.length > 0 && (
         <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-xl shadow-xl overflow-hidden">
           {results.map((r) => (

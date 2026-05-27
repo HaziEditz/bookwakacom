@@ -24,7 +24,7 @@ geocodeRouter.get("/geocode", async (req, res) => {
   try {
     const data = await searchNzPlaces(q, {
       countrycodes: countrycodes?.trim() || "nz",
-      viewbox: viewbox?.trim() || "166,-47,178,-34",
+      viewbox: viewbox?.trim() || "167,-47,170,-45",
       bounded: bounded?.trim() || "0",
       limit: limit ? parseInt(limit, 10) || 8 : 8,
     });
