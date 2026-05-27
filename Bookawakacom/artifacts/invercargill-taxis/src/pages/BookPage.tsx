@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "@/components/AddressInput";
-import BookingMapPanel from "@/components/BookingMapPanel";
+import BookingMapPanel, { isValidMapCoord, MAP_PANEL_HEIGHT_PX } from "@/components/BookingMapPanel";
 import {
   Car,
   Utensils,
@@ -526,12 +526,20 @@ export default function BookPage() {
         if (!pickReady) {
           const r = await fetch(`${import.meta.env.BASE_URL}api/geocode?q=${encodeURIComponent(pickAddr)}`);
           const data = (await r.json()) as Array<{ lat: string; lon: string }>;
-          if (data?.[0]) { pLat = parseFloat(data[0].lat); pLng = parseFloat(data[0].lon); }
+          if (data?.[0]) {
+            pLat = parseFloat(data[0].lat);
+            pLng = parseFloat(data[0].lon);
+            if (!cancelled && pLat && pLng) setPickCoords({ lat: pLat, lng: pLng });
+          }
         }
         if (!dropReady) {
           const r = await fetch(`${import.meta.env.BASE_URL}api/geocode?q=${encodeURIComponent(dropAddr)}`);
           const data = (await r.json()) as Array<{ lat: string; lon: string }>;
-          if (data?.[0]) { dLat = parseFloat(data[0].lat); dLng = parseFloat(data[0].lon); }
+          if (data?.[0]) {
+            dLat = parseFloat(data[0].lat);
+            dLng = parseFloat(data[0].lon);
+            if (!cancelled && dLat && dLng) setDropCoords({ lat: dLat, lng: dLng });
+          }
         }
 
         if (cancelled) return;
@@ -1377,7 +1385,19 @@ export default function BookPage() {
                 </div>
 
                 <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8">
-                  <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
+                  {isValidMapCoord(pickCoords) && isValidMapCoord(dropCoords) ? (
+                    <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
+                  ) : (
+                    <div
+                      className="w-full rounded-[1.5rem] border border-dashed border-border bg-muted/30 flex flex-col items-center justify-center gap-3 p-8 text-center shadow-xl"
+                      style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX }}
+                    >
+                      <MapPin className="w-10 h-10 text-muted-foreground/40" />
+                      <p className="text-sm font-medium text-muted-foreground max-w-xs">
+                        Select pickup and drop-off from the address suggestions to see your route on the map.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -18,8 +18,16 @@ function makeDotIcon(color: string) {
 const pickupIcon = makeDotIcon("#2563eb");
 const dropoffIcon = makeDotIcon("#dc2626");
 
-function isValidCoord(c: { lat: number; lng: number } | null | undefined): c is { lat: number; lng: number } {
+export const MAP_PANEL_HEIGHT_PX = 400;
+
+export function isValidMapCoord(
+  c: { lat: number; lng: number } | null | undefined
+): c is { lat: number; lng: number } {
   return !!c && c.lat !== 0 && c.lng !== 0 && !Number.isNaN(c.lat) && !Number.isNaN(c.lng);
+}
+
+function isValidCoord(c: { lat: number; lng: number } | null | undefined): c is { lat: number; lng: number } {
+  return isValidMapCoord(c);
 }
 
 function FitMapView({ points }: { points: [number, number][] }) {
@@ -103,12 +111,19 @@ export default function BookingMapPanel({
     return pts;
   }, [pickOk, dropOk, pickup, dropoff]);
 
+  const mapKey = `${pickup?.lat ?? 0}-${pickup?.lng ?? 0}-${dropoff?.lat ?? 0}-${dropoff?.lng ?? 0}`;
+
   return (
-    <div className="relative h-[280px] lg:h-full lg:min-h-[520px] rounded-[1.5rem] overflow-hidden border border-border shadow-xl bg-muted/30">
+    <div
+      className="relative w-full rounded-[1.5rem] overflow-hidden border border-border shadow-xl bg-muted/30"
+      style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX }}
+    >
       <MapContainer
+        key={mapKey}
         center={INVERCARGILL}
         zoom={DEFAULT_ZOOM}
-        className="h-full w-full z-0"
+        className="z-0"
+        style={{ height: MAP_PANEL_HEIGHT_PX, width: "100%" }}
         scrollWheelZoom
       >
         <TileLayer
