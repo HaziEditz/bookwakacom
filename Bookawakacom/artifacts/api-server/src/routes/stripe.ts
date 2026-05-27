@@ -2,6 +2,11 @@ import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
 import { debitWallet } from "../lib/wallet";
 import { resolveStripePaymentContext } from "../lib/stripe-keys";
+import {
+  calcConnectPaymentSplit,
+  commissionFieldsFromMetadata,
+  resolveTaxiCommissionPct,
+} from "../lib/stripe-commission";
 
 const stripeRouter = Router();
 
@@ -85,6 +90,7 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
     const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "localhost:80";
     const baseUrl = `https://${domain}`;
 
+    const amountCents = Math.round(amount * 100);
     const sessionParams: Parameters<typeof stripe.checkout.sessions.create>[0] = {
       mode: "payment",
       currency: currency ?? "nzd",
@@ -93,7 +99,7 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
         {
           price_data: {
             currency: currency ?? "nzd",
-            unit_amount: Math.round(amount * 100),
+            unit_amount: amountCents,
             product_data: {
               name: description ?? `Booking ${bookingId}`,
               description: `BookaWaka booking — ref ${bookingId}`,
@@ -113,11 +119,33 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
     };
 
     if (payCtx.mode === "connect" && payCtx.connectAccountId) {
+      const db = getDatabase();
+      const commissionPct = await resolveTaxiCommissionPct(db, cid);
+      const split = calcConnectPaymentSplit(amountCents, commissionPct);
       sessionParams.payment_intent_data = {
         transfer_data: {
           destination: payCtx.connectAccountId,
         },
+        ...(split.applicationFeeCents > 0
+          ? { application_fee_amount: split.applicationFeeCents }
+          : {}),
       };
+      sessionParams.metadata = {
+        ...sessionParams.metadata,
+        commissionPct: String(split.commissionPct),
+        applicationFeeCents: String(split.applicationFeeCents),
+        companyNetCents: String(split.companyNetCents),
+      };
+      req.log.info(
+        {
+          bookingId,
+          cid,
+          commissionPct: split.commissionPct,
+          applicationFeeCents: split.applicationFeeCents,
+          companyNetCents: split.companyNetCents,
+        },
+        "Connect checkout: platform commission applied"
+      );
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
@@ -189,10 +217,12 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
     }
 
     const paidAt = new Date().toISOString();
+    const commissionFields = commissionFieldsFromMetadata(meta as Record<string, string>);
     const walletFields = await applyPendingWalletDebit(db, existing, bookingId, companyId, req.log);
     const paidBooking = {
       ...existing,
       ...walletFields,
+      ...commissionFields,
       Status: "Pending",
       paymentMethod: "card",
       paymentStatus: "paid",
@@ -202,6 +232,7 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
 
     const paidFields = {
       ...walletFields,
+      ...commissionFields,
       Status: "Pending",
       paymentMethod: "card",
       paymentStatus: "paid",
@@ -274,6 +305,8 @@ stripeRouter.post("/stripe/webhook", async (req, res) => {
         const existingBooking = bookingSnap.val() as Record<string, any> | null;
 
         if (existingBooking) {
+          const meta = (session.metadata ?? {}) as Record<string, string>;
+          const commissionFields = commissionFieldsFromMetadata(meta);
           const walletFields = await applyPendingWalletDebit(
             db,
             existingBooking,
@@ -285,6 +318,7 @@ stripeRouter.post("/stripe/webhook", async (req, res) => {
           const paidBooking = {
             ...existingBooking,
             ...walletFields,
+            ...commissionFields,
             Status: "Pending",
             paymentStatus: "paid",
             stripeSessionId: session.id,
@@ -295,6 +329,7 @@ stripeRouter.post("/stripe/webhook", async (req, res) => {
             // Update allbookings with paid status and move to Pending
             db.ref(`allbookings/${companyId}/${bookingId}`).update({
               ...walletFields,
+              ...commissionFields,
               Status: "Pending",
               paymentMethod: "card",
               paymentStatus: "paid",
