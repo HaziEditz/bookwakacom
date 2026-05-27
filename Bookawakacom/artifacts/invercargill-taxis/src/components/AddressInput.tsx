@@ -6,6 +6,17 @@ interface NominatimResult {
   place_id: number;
   lat: string;
   lon: string;
+  name?: string;
+  type?: string;
+  class?: string;
+}
+
+function formatResultLabel(r: NominatimResult): string {
+  const base =
+    r.name && !r.display_name.toLowerCase().startsWith(r.name.toLowerCase())
+      ? `${r.name}, ${r.display_name}`
+      : r.display_name;
+  return base.replace(/, New Zealand$/, "").replace(/,\s*\d{4}(?=,|$)/, "");
 }
 
 const NOMINATIM_COUNTRY_CODES = "nz";
@@ -105,7 +116,7 @@ export default function AddressInput({
               onClick={() => select(r)}
               className="w-full text-left px-4 py-2.5 text-sm hover:bg-muted transition-colors border-b border-border/50 last:border-0 leading-snug"
             >
-              {r.display_name.replace(/, New Zealand$/, "").replace(/,\s*\d{4}(?=,|$)/, "")}
+              {formatResultLabel(r)}
             </button>
           ))}
         </div>

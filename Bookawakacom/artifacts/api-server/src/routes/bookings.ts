@@ -3,6 +3,7 @@ import { getDatabase } from "../lib/firebase";
 import { sendMailerSendEmail } from "../lib/mailersend";
 import { registerScheduledDispatch } from "../lib/scheduler";
 import { debitWallet, readWalletBalanceCents } from "../lib/wallet";
+import { findActiveBooking, normalizePhoneKey } from "../lib/active-booking-guard";
 
 const SA_DISPATCH_URL = "https://taxitime.co.nz/DataManager/Data.aspx";
 
@@ -53,10 +54,6 @@ function normalizeEmailKey(email: string): string {
   return email.toLowerCase().replace(/\./g, ",").replace(/@/g, "__at__");
 }
 
-function normalizePhoneKey(phone: string): string {
-  return phone.replace(/[^0-9]/g, "");
-}
-
 // SA dispatch HQ shows the time column from the BookingDateTime field, formatted
 // in NZ local time as `YYYY-MM-DD HH:mm:ss.` (note the trailing dot — that's
 // the literal C# DateTime.ToString() output the SA app uses).
@@ -101,6 +98,34 @@ async function geocodeAddress(
 }
 
 const bookingsRouter = Router();
+
+bookingsRouter.get("/bookings/active-check", async (req, res) => {
+  const { phone, serviceType } = req.query as { phone?: string; serviceType?: string };
+
+  if (!phone?.trim() || !serviceType?.trim()) {
+    res.status(400).json({ error: "phone and serviceType are required" });
+    return;
+  }
+
+  try {
+    const match = await findActiveBooking(phone.trim(), serviceType.trim());
+    if (!match) {
+      res.json({ hasActive: false });
+      return;
+    }
+    res.json({
+      hasActive: true,
+      code: "DUPLICATE_ACTIVE_BOOKING",
+      existingBookingId: match.existingBookingId,
+      existingStatus: match.existingStatus,
+      serviceType: match.serviceType,
+      message: `You already have an active ${match.serviceType} booking (#${match.existingBookingId}).`,
+    });
+  } catch (err: any) {
+    req.log.warn({ err }, "GET /bookings/active-check error");
+    res.json({ hasActive: false });
+  }
+});
 
 bookingsRouter.post("/bookings", async (req, res) => {
   const {
@@ -208,79 +233,18 @@ bookingsRouter.post("/bookings", async (req, res) => {
   const normalizedServiceType = (serviceType ?? "").toLowerCase().trim();
   if (!isScheduled && normalizedServiceType) {
     try {
-      const guardDb = getDatabase();
-      const idxSnap = await guardDb
-        .ref(`passengerIndex/phone/${normalizedPhone}`)
-        .once("value");
-      const existingKey: string | undefined = idxSnap.val()?.key;
-      if (existingKey) {
-        const jobsSnap = await guardDb
-          .ref(`Passengerjobs/${existingKey}`)
-          .once("value");
-        const jobs: Record<string, any> = jobsSnap.val() ?? {};
-        // Terminal statuses — after normalisation (lowercase, strip spaces /
-        // underscores / hyphens). `declined` is terminal from the passenger's
-        // PoV: if a driver declined, dispatch reassigns (Status moves back to
-        // Pending). A booking that ends up stuck on Declined is effectively
-        // dead — we must not block rebooking on it. Same for `canceled` (US
-        // spelling) just in case some upstream writer uses it.
-        const TERMINAL = new Set([
-          "completed",
-          "closed",
-          "cancelled",
-          "canceled",
-          "noshow",
-          "declined",
-        ]);
-        for (const [existingId, job] of Object.entries(jobs)) {
-          if (existingId === bookingId) continue; // skip self (retry/idempotency)
-          // Case-insensitive service type compare so mixed-casing data (older
-          // records, manual writes) doesn't slip past the guard.
-          const jobService = (job?.ServiceType ?? "").toString().toLowerCase().trim();
-          if (jobService !== normalizedServiceType) continue;
-
-          // Only consider ASAP existing bookings — passenger may hold multiple
-          // future scheduled bookings of the same service.
-          const jobIsAsap =
-            (job?.BookingType ?? "") === "ASAP" ||
-            (!job?.ScheduledForMs && !job?.ScheduledFor);
-          if (!jobIsAsap) continue;
-
-          // Read authoritative status from allbookings — Passengerjobs Status
-          // is stale (dispatch updates only land in allbookings).
-          const jobCid = job?.CompanyId ?? job?.companyId;
-          let liveStatus: string =
-            (job?.Status ?? job?.status ?? "").toString();
-          if (jobCid) {
-            try {
-              const liveSnap = await guardDb
-                .ref(`allbookings/${jobCid}/${existingId}`)
-                .once("value");
-              const live = liveSnap.val();
-              if (live) {
-                liveStatus = (live.Status ?? live.status ?? liveStatus).toString();
-              }
-            } catch {
-              // best-effort; fall back to Passengerjobs status
-            }
-          }
-          const norm = liveStatus.toLowerCase().replace(/[\s_-]/g, "");
-          if (!TERMINAL.has(norm)) {
-            res.status(409).json({
-              error: `You already have an active ${serviceType} booking (#${existingId}). Please wait for it to be completed or cancel it before booking another.`,
-              code: "DUPLICATE_ACTIVE_BOOKING",
-              existingBookingId: existingId,
-              existingStatus: liveStatus,
-              serviceType,
-            });
-            return;
-          }
-        }
+      const match = await findActiveBooking(passengerPhone, serviceType ?? "", bookingId);
+      if (match) {
+        res.status(409).json({
+          error: `You already have an active ${serviceType} booking (#${match.existingBookingId}). Please wait for it to be completed or cancel it before booking another.`,
+          code: "DUPLICATE_ACTIVE_BOOKING",
+          existingBookingId: match.existingBookingId,
+          existingStatus: match.existingStatus,
+          serviceType,
+        });
+        return;
       }
     } catch (err) {
-      // Guard is best-effort — if Firebase is having a moment we'd rather
-      // let the booking through than block the user behind a transient read
-      // failure. Bookings remain idempotent via jobId.
       req.log.warn({ err, normalizedPhone, serviceType }, "duplicate-active-booking guard read failed; allowing booking through");
     }
   }

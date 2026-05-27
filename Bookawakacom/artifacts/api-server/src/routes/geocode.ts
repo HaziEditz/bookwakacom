@@ -1,11 +1,13 @@
 import { Router } from "express";
+import { searchNzPlaces } from "../lib/geocode-search";
 
 const geocodeRouter = Router();
 
 // Proxy Nominatim searches so we can:
 //  1. Set a proper User-Agent (required by Nominatim ToS)
-//  2. Bias results toward Invercargill / Southland with a viewbox
-//  3. Avoid browser CORS/rate-limit issues
+//  2. Bias results toward New Zealand with a viewbox
+//  3. Boost business/POI name matches with a ", New Zealand" retry
+//  4. Avoid browser CORS/rate-limit issues
 geocodeRouter.get("/geocode", async (req, res) => {
   const { q, countrycodes, viewbox, bounded, limit } = req.query as {
     q?: string;
@@ -20,31 +22,12 @@ geocodeRouter.get("/geocode", async (req, res) => {
   }
 
   try {
-    const url = new URL("https://nominatim.openstreetmap.org/search");
-    url.searchParams.set("q", q.trim());
-    url.searchParams.set("format", "json");
-    url.searchParams.set("countrycodes", countrycodes?.trim() || "nz");
-    url.searchParams.set("limit", limit?.trim() || "8");
-    url.searchParams.set("addressdetails", "0");
-    // Bias toward New Zealand — results inside viewbox rank higher,
-    // but results outside still appear if nothing local matches (bounded=0)
-    url.searchParams.set("viewbox", viewbox?.trim() || "166,-47,178,-34");
-    url.searchParams.set("bounded", bounded?.trim() || "0");
-
-    const nomRes = await fetch(url.toString(), {
-      headers: {
-        "User-Agent": "BookaWaka/1.0 (info@bookawaka.com)",
-        "Accept-Language": "en-NZ,en",
-      },
+    const data = await searchNzPlaces(q, {
+      countrycodes: countrycodes?.trim() || "nz",
+      viewbox: viewbox?.trim() || "166,-47,178,-34",
+      bounded: bounded?.trim() || "0",
+      limit: limit ? parseInt(limit, 10) || 8 : 8,
     });
-
-    if (!nomRes.ok) {
-      req.log.warn({ status: nomRes.status }, "GET /geocode: Nominatim error");
-      res.json([]);
-      return;
-    }
-
-    const data = await nomRes.json();
     res.json(data);
   } catch (err: any) {
     req.log.warn({ err }, "GET /geocode proxy error");

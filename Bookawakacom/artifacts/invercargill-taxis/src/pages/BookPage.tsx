@@ -30,6 +30,8 @@ import {
   Shield,
   Ticket,
   Gift,
+  XCircle,
+  Pencil,
 } from "lucide-react";
 
 interface Company {
@@ -107,6 +109,14 @@ interface PaymentConfig {
   companyCashEnabled?: boolean;
   effectiveCash?: boolean;
   cardEnabled?: boolean;
+  stripeConfigured?: boolean;
+}
+
+interface ActiveBookingConflict {
+  existingBookingId: string;
+  existingStatus?: string;
+  serviceType?: string;
+  message: string;
 }
 
 const SERVICE_LABELS: Record<string, { label: string; icon: React.ReactNode; desc: string }> = {
@@ -232,6 +242,20 @@ export default function BookPage() {
   const [useWalletCredit, setUseWalletCredit] = useState(false);
   const [paidWithWallet, setPaidWithWallet] = useState(false);
   const [walletAppliedAtBooking, setWalletAppliedAtBooking] = useState(0);
+  const [activeBooking, setActiveBooking] = useState<ActiveBookingConflict | null>(null);
+  const [isEditingSuccessBooking, setIsEditingSuccessBooking] = useState(false);
+  const [confirmCancelSuccess, setConfirmCancelSuccess] = useState(false);
+  const [isCancellingSuccess, setIsCancellingSuccess] = useState(false);
+  const [isSavingSuccessEdit, setIsSavingSuccessEdit] = useState(false);
+  const [successEditError, setSuccessEditError] = useState<string | null>(null);
+  const [successCancelError, setSuccessCancelError] = useState<string | null>(null);
+  const [successCancelled, setSuccessCancelled] = useState(false);
+  const [successEditForm, setSuccessEditForm] = useState({
+    pickAddress: "",
+    dropAddress: "",
+    scheduledFor: "",
+    notes: "",
+  });
 
   useEffect(() => {
     setPassengerKey(getOrCreatePassengerKey());
@@ -342,10 +366,43 @@ export default function BookPage() {
       return;
     }
     fetch(`${import.meta.env.BASE_URL}api/payment-config?cid=${selectedCompany.id}`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((d) => setPaymentConfig(d))
       .catch(() => setPaymentConfig(null));
   }, [selectedCompany]);
+
+  // Proactively warn if passenger already has an active ASAP booking for this service
+  useEffect(() => {
+    if (bookingType === "scheduled" || !selectedService || step >= 4) {
+      setActiveBooking(null);
+      return;
+    }
+    const phone = form.passengerPhone.trim();
+    if (phone.replace(/\D/g, "").length < 7) {
+      setActiveBooking(null);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ phone, serviceType: selectedService });
+        const res = await fetch(`${import.meta.env.BASE_URL}api/bookings/active-check?${params}`);
+        const d = await res.json();
+        if (d.hasActive && d.existingBookingId) {
+          setActiveBooking({
+            existingBookingId: d.existingBookingId,
+            existingStatus: d.existingStatus,
+            serviceType: d.serviceType,
+            message: d.message ?? "You already have an active booking.",
+          });
+        } else {
+          setActiveBooking(null);
+        }
+      } catch {
+        setActiveBooking(null);
+      }
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [form.passengerPhone, selectedService, bookingType, step]);
 
   useEffect(() => {
     if (!selectedCompany || selectedService !== "food") return;
@@ -411,7 +468,7 @@ export default function BookPage() {
   }, [paymentRef, paymentMethod, selectedCompany, fareEstimate]);
 
   const availablePaymentMethods = PAYMENT_METHODS.filter(
-    (pm) => pm.value !== "card" || paymentConfig?.cardEnabled !== false
+    (pm) => pm.value !== "card" || paymentConfig?.cardEnabled === true || paymentConfig == null
   );
 
   useEffect(() => {
@@ -559,8 +616,106 @@ export default function BookPage() {
       }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Something went wrong");
+    if (!res.ok) {
+      const err = new Error(data.error ?? "Something went wrong") as Error & {
+        code?: string;
+        existingBookingId?: string;
+        existingStatus?: string;
+      };
+      err.code = data.code;
+      err.existingBookingId = data.existingBookingId;
+      err.existingStatus = data.existingStatus;
+      throw err;
+    }
     return data.bookingId as string;
+  };
+
+  const handleBookingError = (err: any) => {
+    if (err?.code === "DUPLICATE_ACTIVE_BOOKING" && err.existingBookingId) {
+      setActiveBooking({
+        existingBookingId: err.existingBookingId,
+        existingStatus: err.existingStatus,
+        serviceType: selectedService,
+        message: err.message ?? "You already have an active booking.",
+      });
+    }
+    setError(err.message ?? "Something went wrong");
+  };
+
+  const openSuccessEdit = () => {
+    setSuccessEditForm({
+      pickAddress: form.pickAddress,
+      dropAddress: form.dropAddress,
+      scheduledFor: wasScheduled ? toNZDatetimeLocal(form.scheduledFor) : "",
+      notes: form.notes,
+    });
+    setSuccessEditError(null);
+    setIsEditingSuccessBooking(true);
+  };
+
+  const handleSaveSuccessEdit = async () => {
+    if (!passengerKey || !bookingId || !selectedCompany) return;
+    setIsSavingSuccessEdit(true);
+    setSuccessEditError(null);
+    try {
+      const res = await fetch(
+        `${import.meta.env.BASE_URL}api/my-rides/${bookingId}/update`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: passengerKey,
+            companyId: selectedCompany.id,
+            ...(wasScheduled && successEditForm.scheduledFor
+              ? { scheduledFor: fromNZDatetimeLocal(successEditForm.scheduledFor) }
+              : {}),
+            notes: successEditForm.notes,
+            pickAddress: successEditForm.pickAddress || undefined,
+            dropAddress: successEditForm.dropAddress || undefined,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not save changes");
+      setForm((prev) => ({
+        ...prev,
+        pickAddress: successEditForm.pickAddress,
+        dropAddress: successEditForm.dropAddress,
+        notes: successEditForm.notes,
+        ...(wasScheduled && successEditForm.scheduledFor
+          ? { scheduledFor: fromNZDatetimeLocal(successEditForm.scheduledFor) }
+          : {}),
+      }));
+      setIsEditingSuccessBooking(false);
+    } catch (err: any) {
+      setSuccessEditError(err.message ?? "Could not save changes");
+    } finally {
+      setIsSavingSuccessEdit(false);
+    }
+  };
+
+  const handleCancelSuccessBooking = async () => {
+    if (!passengerKey || !bookingId || !selectedCompany) return;
+    setIsCancellingSuccess(true);
+    setSuccessCancelError(null);
+    try {
+      const res = await fetch(
+        `${import.meta.env.BASE_URL}api/my-rides/${bookingId}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: passengerKey, companyId: selectedCompany.id }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not cancel booking");
+      setConfirmCancelSuccess(false);
+      setSuccessCancelled(true);
+    } catch (err: any) {
+      setSuccessCancelError(err.message ?? "Could not cancel booking");
+    } finally {
+      setIsCancellingSuccess(false);
+    }
   };
 
   const handlePayWithWallet = async () => {
@@ -585,7 +740,7 @@ export default function BookPage() {
       setWalletBalance((prev) => Math.max(0, +(prev - fareTotal).toFixed(2)));
       setStep(4);
     } catch (err: any) {
-      setError(err.message);
+      handleBookingError(err);
     } finally {
       setSubmitting(false);
     }
@@ -606,7 +761,7 @@ export default function BookPage() {
       setPaidByCard(false);
       setStep(4);
     } catch (err: any) {
-      setError(err.message);
+      handleBookingError(err);
     } finally {
       setSubmitting(false);
     }
@@ -649,7 +804,7 @@ export default function BookPage() {
       if (!stripeRes.ok) throw new Error(stripeData.error ?? "Could not start card payment");
       (window.top ?? window).location.href = stripeData.url;
     } catch (err: any) {
-      setError(err.message);
+      handleBookingError(err);
     } finally {
       setSubmittingCard(false);
     }
@@ -892,6 +1047,10 @@ export default function BookPage() {
                   <> · <span className="font-bold text-foreground">{selectedRestaurant.name}</span></>
                 )}
               </p>
+
+              {activeBooking && bookingType === "now" && (
+                <ActiveBookingAlert conflict={activeBooking} />
+              )}
 
               <form
                 onSubmit={(e) => {
@@ -1211,6 +1370,10 @@ export default function BookPage() {
               <h1 className="text-3xl md:text-4xl font-display font-black text-foreground mb-2">Confirm booking</h1>
               <p className="text-muted-foreground font-medium mb-8">Check everything looks right before sending.</p>
 
+              {activeBooking && bookingType === "now" && (
+                <ActiveBookingAlert conflict={activeBooking} />
+              )}
+
               <div className="bg-card border border-border rounded-[1.5rem] p-6 md:p-8 shadow-xl space-y-4 mb-6">
                 <Row label="Company" value={selectedCompany?.name ?? ""} />
                 <Row label="Service" value={SERVICE_LABELS[selectedService]?.label ?? selectedService} />
@@ -1395,6 +1558,96 @@ export default function BookPage() {
           {/* Step 4: Success */}
           {step === 4 && (
             <div className="text-center py-8">
+              {successCancelled ? (
+                <>
+                  <div className="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 bg-destructive/10 text-destructive">
+                    <XCircle className="w-10 h-10" />
+                  </div>
+                  <h1 className="text-3xl md:text-4xl font-display font-black text-foreground mb-3">Booking cancelled</h1>
+                  <p className="text-muted-foreground font-medium mb-6 max-w-sm mx-auto">
+                    Booking <span className="font-mono font-bold">{bookingId}</span> has been cancelled.
+                  </p>
+                  <a href="/my-rides">
+                    <Button size="lg" className="rounded-full font-bold px-8">
+                      View My Rides
+                    </Button>
+                  </a>
+                </>
+              ) : isEditingSuccessBooking ? (
+                <div className="text-left max-w-lg mx-auto">
+                  <h1 className="text-2xl font-display font-black text-foreground mb-2">Edit booking</h1>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    Update pickup, drop-off{wasScheduled ? ", or scheduled time" : ""} before a driver is assigned.
+                  </p>
+                  <div className="space-y-4 bg-card border border-border rounded-2xl p-6 shadow-xl">
+                    <div className="space-y-2">
+                      <Label className="font-bold text-sm">Pickup</Label>
+                      <AddressInput
+                        id="successPick"
+                        name="successPick"
+                        value={successEditForm.pickAddress}
+                        onChange={(val) => setSuccessEditForm((p) => ({ ...p, pickAddress: val }))}
+                        placeholder="Pickup address"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-bold text-sm">Drop-off</Label>
+                      <AddressInput
+                        id="successDrop"
+                        name="successDrop"
+                        value={successEditForm.dropAddress}
+                        onChange={(val) => setSuccessEditForm((p) => ({ ...p, dropAddress: val }))}
+                        placeholder="Drop-off address"
+                      />
+                    </div>
+                    {wasScheduled && (
+                      <div className="space-y-2">
+                        <Label className="font-bold text-sm">Scheduled time</Label>
+                        <Input
+                          type="datetime-local"
+                          value={successEditForm.scheduledFor}
+                          onChange={(e) => setSuccessEditForm((p) => ({ ...p, scheduledFor: e.target.value }))}
+                          className="rounded-xl h-12"
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label className="font-bold text-sm">Notes</Label>
+                      <Textarea
+                        value={successEditForm.notes}
+                        onChange={(e) => setSuccessEditForm((p) => ({ ...p, notes: e.target.value }))}
+                        rows={3}
+                        className="rounded-xl resize-none"
+                      />
+                    </div>
+                    {successEditError && (
+                      <p className="text-sm text-destructive">{successEditError}</p>
+                    )}
+                    <div className="flex gap-3 pt-2">
+                      <Button
+                        onClick={handleSaveSuccessEdit}
+                        disabled={isSavingSuccessEdit}
+                        className="flex-1 rounded-full font-bold"
+                      >
+                        {isSavingSuccessEdit ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving…</>
+                        ) : (
+                          "Save changes"
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsEditingSuccessBooking(false)}
+                        disabled={isSavingSuccessEdit}
+                        className="rounded-full font-bold"
+                      >
+                        Back
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
               <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${wasScheduled ? "bg-primary/10 text-primary" : selectedService === "food" ? "bg-orange-50 text-orange-600" : "bg-accent/20 text-accent-foreground"}`}>
                 {wasScheduled ? <CalendarClock className="w-10 h-10" /> : selectedService === "food" ? <Utensils className="w-10 h-10" /> : <CheckCircle2 className="w-10 h-10" />}
               </div>
@@ -1426,7 +1679,60 @@ export default function BookPage() {
                   {paymentMethod === "giftcard" && <><Gift className="w-4 h-4 shrink-0" /> Gift card: {paymentRef}</>}
                 </div>
               )}
+
+              {confirmCancelSuccess && (
+                <div className="max-w-sm mx-auto mb-6 p-5 bg-destructive/5 border border-destructive/20 rounded-2xl text-left">
+                  <p className="text-sm font-bold text-destructive mb-2">Cancel this booking?</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    This will cancel booking #{bookingId}. You can edit pickup or time instead if you only need to change details.
+                  </p>
+                  {successCancelError && (
+                    <p className="text-sm text-destructive mb-3">{successCancelError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleCancelSuccessBooking}
+                      disabled={isCancellingSuccess}
+                      className="rounded-full font-bold"
+                    >
+                      {isCancellingSuccess ? (
+                        <><Loader2 className="w-4 h-4 mr-1 animate-spin" /> Cancelling…</>
+                      ) : (
+                        "Yes, cancel"
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setConfirmCancelSuccess(false); setSuccessCancelError(null); }}
+                      disabled={isCancellingSuccess}
+                      className="rounded-full font-bold"
+                    >
+                      Keep booking
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col sm:flex-row gap-3 justify-center mt-4">
+                <Button
+                  onClick={openSuccessEdit}
+                  variant="outline"
+                  size="lg"
+                  className="rounded-full font-bold px-8"
+                >
+                  <Pencil className="w-5 h-5 mr-2" /> Edit booking
+                </Button>
+                <Button
+                  onClick={() => { setConfirmCancelSuccess(true); setSuccessCancelError(null); }}
+                  variant="outline"
+                  size="lg"
+                  className="rounded-full font-bold px-8 border-destructive/30 text-destructive hover:bg-destructive/5"
+                >
+                  <XCircle className="w-5 h-5 mr-2" /> Cancel booking
+                </Button>
                 <a href="/my-rides">
                   <Button size="lg" className="w-full sm:w-auto bg-primary text-primary-foreground hover:bg-primary/90 rounded-full font-bold px-8">
                     <CalendarClock className="w-5 h-5 mr-2" /> {wasScheduled ? "View My Scheduled Rides" : "My Rides"}
@@ -1445,6 +1751,10 @@ export default function BookPage() {
                     setPaidWithWallet(false);
                     setWalletAppliedAtBooking(0);
                     setUseWalletCredit(false);
+                    setActiveBooking(null);
+                    setIsEditingSuccessBooking(false);
+                    setConfirmCancelSuccess(false);
+                    setSuccessCancelled(false);
                     if (passengerKey) fetchWallet(passengerKey);
                     setError(null);
                     setSelectedRestaurant(null);
@@ -1471,6 +1781,8 @@ export default function BookPage() {
                   </a>
                 )}
               </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -1486,4 +1798,58 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-sm font-medium text-foreground">{value}</span>
     </div>
   );
+}
+
+function ActiveBookingAlert({ conflict }: { conflict: ActiveBookingConflict }) {
+  return (
+    <div className="mb-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-left">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-amber-900">You already have an active booking</p>
+          <p className="text-sm text-amber-800 mt-1">
+            {conflict.message}
+            {conflict.existingStatus && (
+              <> · Status: <strong>{conflict.existingStatus}</strong></>
+            )}
+          </p>
+          <a href="/my-rides" className="inline-block mt-3">
+            <Button size="sm" className="rounded-full font-bold bg-amber-700 hover:bg-amber-800 text-white">
+              View my booking
+            </Button>
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function toNZDatetimeLocal(isoOrMs: string | number | undefined): string {
+  if (isoOrMs == null || isoOrMs === "" || isoOrMs === 0) return "";
+  const d = new Date(isoOrMs);
+  if (isNaN(d.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Pacific/Auckland",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "00";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
+function fromNZDatetimeLocal(localStr: string): string {
+  if (!localStr) throw new Error("No scheduled time entered");
+  const utcNow = new Date();
+  const nzNow = new Date(utcNow.toLocaleString("en-US", { timeZone: "Pacific/Auckland" }));
+  const offsetMs = utcNow.getTime() - nzNow.getTime();
+  const [datePart, timePart] = localStr.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  const nzAsUtc = Date.UTC(y, m - 1, d, hh, mm);
+  return new Date(nzAsUtc + offsetMs).toISOString();
 }
