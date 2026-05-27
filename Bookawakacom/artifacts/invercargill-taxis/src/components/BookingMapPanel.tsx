@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import { Loader2 } from "lucide-react";
-import "leaflet/dist/leaflet.css";
 
 const INVERCARGILL: [number, number] = [-46.4132, 168.3538];
 const DEFAULT_ZOOM = 13;
