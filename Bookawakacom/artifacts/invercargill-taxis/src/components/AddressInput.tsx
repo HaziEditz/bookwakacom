@@ -91,7 +91,17 @@ export default function AddressInput({
           signal: controller.signal,
           headers: { "Accept-Language": "en" },
         });
+        if (!res.ok) {
+          setResults([]);
+          setOpen(false);
+          return;
+        }
         const data: NominatimResult[] = await res.json();
+        if (!Array.isArray(data)) {
+          setResults([]);
+          setOpen(false);
+          return;
+        }
         setResults(data);
         setOpen(data.length > 0);
       } catch {

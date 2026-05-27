@@ -4,6 +4,7 @@ import { sendMailerSendEmail } from "../lib/mailersend";
 import { registerScheduledDispatch } from "../lib/scheduler";
 import { debitWallet, readWalletBalanceCents } from "../lib/wallet";
 import { findActiveBooking, normalizePhoneKey } from "../lib/active-booking-guard";
+import { searchNzPlaces } from "../lib/geocode-search";
 
 const SA_DISPATCH_URL = "https://taxitime.co.nz/DataManager/Data.aspx";
 
@@ -80,12 +81,7 @@ async function geocodeAddress(
   log: any
 ): Promise<{ lat: number; lng: number }> {
   try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=nz&viewbox=167.0,-45.0,171.0,-47.8&bounded=0`,
-      { headers: { "User-Agent": "BookaWaka/1.0 (info@bookawaka.com)" } }
-    );
-    if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
-    const results = (await res.json()) as Array<{ lat: string; lon: string }>;
+    const results = await searchNzPlaces(address, { limit: 1 });
     if (results.length === 0) {
       log.warn({ address }, "geocodeAddress: no results from Nominatim");
       return { lat: 0, lng: 0 };

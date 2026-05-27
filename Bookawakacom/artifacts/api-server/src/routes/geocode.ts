@@ -21,14 +21,20 @@ geocodeRouter.get("/geocode", async (req, res) => {
     return;
   }
 
+  const parsedLimit = limit ? parseInt(limit, 10) : 8;
+  const safeLimit = Number.isFinite(parsedLimit)
+    ? Math.min(10, Math.max(1, parsedLimit))
+    : 8;
+
   try {
     const data = await searchNzPlaces(q, {
       countrycodes: countrycodes?.trim() || "nz",
       viewbox: viewbox?.trim() || "167,-47,170,-45",
       bounded: bounded?.trim() || "0",
-      limit: limit ? parseInt(limit, 10) || 8 : 8,
+      limit: safeLimit,
     });
-    res.json(data);
+    res.setHeader("Content-Type", "application/json");
+    res.json(Array.isArray(data) ? data : []);
   } catch (err: any) {
     req.log.warn({ err }, "GET /geocode proxy error");
     res.json([]);
