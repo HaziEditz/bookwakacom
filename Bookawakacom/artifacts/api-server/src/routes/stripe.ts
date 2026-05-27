@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
 import { debitWallet } from "../lib/wallet";
-import { resolveStripeSecretKey } from "../lib/stripe-keys";
+import { resolveStripePaymentContext } from "../lib/stripe-keys";
 
 const stripeRouter = Router();
 
@@ -71,8 +71,8 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
     return;
   }
 
-  const stripeKey = await resolveStripeSecretKey(cid);
-  if (!stripeKey) {
+  const payCtx = await resolveStripePaymentContext(cid);
+  if (!payCtx.secretKey) {
     req.log.error({ cid }, "No Stripe secret key for company or STRIPE_SECRET_KEY env");
     res.status(503).json({ error: "Online card payment is not configured yet. Please pay your driver on arrival." });
     return;
@@ -80,12 +80,12 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
 
   try {
     const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2026-04-22.dahlia" });
+    const stripe = new Stripe(payCtx.secretKey, { apiVersion: "2026-04-22.dahlia" });
 
     const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "localhost:80";
     const baseUrl = `https://${domain}`;
 
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams: Parameters<typeof stripe.checkout.sessions.create>[0] = {
       mode: "payment",
       currency: currency ?? "nzd",
       customer_email: email,
@@ -106,10 +106,21 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
         bookingId,
         companyId: cid,
         type: "booking_payment",
+        stripeMode: payCtx.mode ?? "direct",
       },
       success_url: `${baseUrl}/payment-success?booking=${bookingId}&cid=${encodeURIComponent(cid)}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/payment-cancel?booking=${bookingId}&cid=${encodeURIComponent(cid)}`,
-    });
+    };
+
+    if (payCtx.mode === "connect" && payCtx.connectAccountId) {
+      sessionParams.payment_intent_data = {
+        transfer_data: {
+          destination: payCtx.connectAccountId,
+        },
+      };
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
 
     req.log.info({ bookingId, cid, sessionId: session.id }, "Stripe Checkout session created");
     res.json({ ok: true, url: session.url, sessionId: session.id });
@@ -134,8 +145,8 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
     return;
   }
 
-  const stripeKey = await resolveStripeSecretKey(companyId);
-  if (!stripeKey) {
+  const payCtx = await resolveStripePaymentContext(companyId);
+  if (!payCtx.secretKey) {
     req.log.error({ companyId }, "No Stripe secret key for company or STRIPE_SECRET_KEY env");
     res.status(503).json({ error: "Stripe not configured" });
     return;
@@ -143,7 +154,7 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
 
   try {
     const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2026-04-22.dahlia" });
+    const stripe = new Stripe(payCtx.secretKey, { apiVersion: "2026-04-22.dahlia" });
 
     // Verify the session with Stripe directly
     const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -229,16 +240,16 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
 
 stripeRouter.post("/stripe/webhook", async (req, res) => {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  const stripeKey = await resolveStripeSecretKey();
+  const payCtx = await resolveStripePaymentContext();
 
-  if (!stripeKey || !webhookSecret) {
+  if (!payCtx.secretKey || !webhookSecret) {
     res.status(503).json({ error: "Stripe not configured" });
     return;
   }
 
   try {
     const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(stripeKey, { apiVersion: "2026-04-22.dahlia" });
+    const stripe = new Stripe(payCtx.secretKey, { apiVersion: "2026-04-22.dahlia" });
     const sig = req.headers["stripe-signature"];
     if (!sig) {
       res.status(400).json({ error: "Missing stripe-signature" });

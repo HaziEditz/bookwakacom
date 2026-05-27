@@ -17,6 +17,23 @@ function hasStripeKeysConfigured(stripe: Record<string, unknown> | null): boolea
   );
 }
 
+function isConnectComplete(stripe: Record<string, unknown> | null): boolean {
+  if (!stripe || typeof stripe !== "object") return false;
+  if (stripe.connectStatus === "complete" || stripe.connectOnboardingComplete === true) return true;
+  const accountId = stripe.stripeAccountId ?? stripe.stripeConnectId;
+  return (
+    typeof accountId === "string" &&
+    accountId.startsWith("acct_") &&
+    stripe.connectChargesEnabled === true
+  );
+}
+
+function hasConnectPending(stripe: Record<string, unknown> | null): boolean {
+  if (!stripe || typeof stripe !== "object") return false;
+  const accountId = stripe.stripeAccountId ?? stripe.stripeConnectId;
+  return typeof accountId === "string" && accountId.startsWith("acct_") && !isConnectComplete(stripe);
+}
+
 paymentConfigRouter.get("/payment-config", async (req, res) => {
   const { cid } = req.query as { cid?: string };
 
@@ -42,15 +59,19 @@ paymentConfigRouter.get("/payment-config", async (req, res) => {
 
     const platformCardEnabled: boolean = platformCardSnap.val() !== false;
     const companyCardEnabled: boolean = companyCardSnap.val() !== false;
-    const stripeConfigured = hasStripeKeysConfigured(stripeSnap.val());
-
-    // Card is enabled when Stripe keys are saved for this company, unless explicitly disabled.
-    const cardEnabled: boolean =
-      stripeConfigured || (platformCardEnabled && companyCardEnabled);
-
     const stripe = stripeSnap.val() ?? {};
+    const stripeConfigured = hasStripeKeysConfigured(stripe);
+    const connectComplete = isConnectComplete(stripe);
+    const connectPending = hasConnectPending(stripe);
+
+    // Card enabled when Stripe Connect is complete, legacy keys exist, or platform toggles allow it.
+    const cardEnabled: boolean =
+      connectComplete || stripeConfigured || (platformCardEnabled && companyCardEnabled);
+
     const stripePublishableKey =
-      stripe.stripePublishableKey ?? stripe.publishableKey ?? stripe.publishable_key ?? "";
+      connectComplete
+        ? (process.env.STRIPE_PUBLISHABLE_KEY ?? "")
+        : (stripe.stripePublishableKey ?? stripe.publishableKey ?? stripe.publishable_key ?? "");
 
     res.json({
       cashEnabled,
@@ -58,6 +79,8 @@ paymentConfigRouter.get("/payment-config", async (req, res) => {
       effectiveCash,
       cardEnabled,
       stripeConfigured,
+      connectComplete,
+      connectPending,
       stripePublishableKey: typeof stripePublishableKey === "string" ? stripePublishableKey : "",
     });
   } catch (err: any) {
