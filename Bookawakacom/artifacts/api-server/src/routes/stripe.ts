@@ -1,12 +1,9 @@
 import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
 import { debitWallet } from "../lib/wallet";
+import { resolveStripeSecretKey } from "../lib/stripe-keys";
 
 const stripeRouter = Router();
-
-function getStripeKey(): string | null {
-  return process.env.STRIPE_SECRET_KEY ?? null;
-}
 
 /** Debit walletAmountPending after card payment confirms (partial wallet + card bookings). */
 async function applyPendingWalletDebit(
@@ -74,9 +71,9 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
     return;
   }
 
-  const stripeKey = getStripeKey();
+  const stripeKey = await resolveStripeSecretKey(cid);
   if (!stripeKey) {
-    req.log.error("STRIPE_SECRET_KEY not configured");
+    req.log.error({ cid }, "No Stripe secret key for company or STRIPE_SECRET_KEY env");
     res.status(503).json({ error: "Online card payment is not configured yet. Please pay your driver on arrival." });
     return;
   }
@@ -137,8 +134,9 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
     return;
   }
 
-  const stripeKey = getStripeKey();
+  const stripeKey = await resolveStripeSecretKey(companyId);
   if (!stripeKey) {
+    req.log.error({ companyId }, "No Stripe secret key for company or STRIPE_SECRET_KEY env");
     res.status(503).json({ error: "Stripe not configured" });
     return;
   }
@@ -230,8 +228,8 @@ stripeRouter.post("/stripe/verify-and-dispatch", async (req, res) => {
 });
 
 stripeRouter.post("/stripe/webhook", async (req, res) => {
-  const stripeKey = getStripeKey();
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripeKey = await resolveStripeSecretKey();
 
   if (!stripeKey || !webhookSecret) {
     res.status(503).json({ error: "Stripe not configured" });
