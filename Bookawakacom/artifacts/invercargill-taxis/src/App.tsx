@@ -1080,6 +1080,7 @@ function Router() {
       <Route path="/towing" component={TowingPage} />
       <Route path="/tow/track" component={TowTrackPage} />
       <Route path="/tow" component={TowRequestPage} />
+      <Route path="/booking-success" component={PaymentSuccessPage} />
       <Route path="/payment-success" component={PaymentSuccessPage} />
       <Route path="/payment-cancel" component={PaymentCancelPage} />
       <Route path="/" component={Home} />

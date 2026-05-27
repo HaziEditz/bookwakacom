@@ -61,6 +61,14 @@ async function applyPendingWalletDebit(
   };
 }
 
+function getCustomerWebUrl(): string {
+  const explicit = process.env.CUSTOMER_WEB_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? process.env.REPLIT_DEV_DOMAIN;
+  if (!domain) return "";
+  return domain.startsWith("http") ? domain.replace(/\/$/, "") : `https://${domain}`;
+}
+
 stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
   const { cid, bookingId, description, amount, currency, email } = req.body as {
     cid?: string;
@@ -87,8 +95,12 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
     const Stripe = (await import("stripe")).default;
     const stripe = new Stripe(payCtx.secretKey, { apiVersion: "2026-04-22.dahlia" });
 
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0] ?? process.env.REPLIT_DEV_DOMAIN ?? "localhost:80";
-    const baseUrl = `https://${domain}`;
+    const customerWebUrl = getCustomerWebUrl();
+    if (!customerWebUrl) {
+      req.log.error({ cid }, "CUSTOMER_WEB_URL not configured");
+      res.status(503).json({ error: "Payment redirect URL is not configured." });
+      return;
+    }
 
     const amountCents = Math.round(amount * 100);
     const sessionParams: Parameters<typeof stripe.checkout.sessions.create>[0] = {
@@ -114,8 +126,8 @@ stripeRouter.post("/stripe/create-booking-payment", async (req, res) => {
         type: "booking_payment",
         stripeMode: payCtx.mode ?? "direct",
       },
-      success_url: `${baseUrl}/payment-success?booking=${bookingId}&cid=${encodeURIComponent(cid)}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/payment-cancel?booking=${bookingId}&cid=${encodeURIComponent(cid)}`,
+      success_url: `${customerWebUrl}/booking-success?booking=${bookingId}&cid=${encodeURIComponent(cid)}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${customerWebUrl}/book`,
     };
 
     if (payCtx.mode === "connect" && payCtx.connectAccountId) {
