@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "@/components/AddressInput";
+import BookingMapPanel from "@/components/BookingMapPanel";
 import {
   Car,
   Utensils,
@@ -859,7 +860,7 @@ export default function BookPage() {
       </header>
 
       <main className="flex-1 flex items-start justify-center px-4 py-12">
-        <div className="w-full max-w-2xl">
+        <div className={`w-full ${step === 2 ? "max-w-6xl" : "max-w-2xl"}`}>
 
           {/* Step 0: Choose Company */}
           {step === 0 && (
@@ -1052,6 +1053,8 @@ export default function BookPage() {
                 <ActiveBookingAlert conflict={activeBooking} />
               )}
 
+              <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+                <div className="min-w-0 order-1">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1358,6 +1361,12 @@ export default function BookPage() {
                   Review Booking <ChevronRight className="w-5 h-5 ml-2" />
                 </Button>
               </form>
+                </div>
+
+                <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8">
+                  <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
+                </div>
+              </div>
             </div>
           )}
 
