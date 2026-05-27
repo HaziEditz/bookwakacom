@@ -263,7 +263,7 @@ export default function BookPage() {
   }, [passengerKey]);
 
   useEffect(() => {
-    if (step === 3 && passengerKey) fetchWallet(passengerKey);
+    if ((step === 2 || step === 3) && passengerKey) fetchWallet(passengerKey);
   }, [step, passengerKey]);
 
   useEffect(() => {
@@ -894,7 +894,21 @@ export default function BookPage() {
               </p>
 
               <form
-                onSubmit={(e) => { e.preventDefault(); setStep(3); }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (paymentMethod !== "card") {
+                    if (!paymentRef.trim()) {
+                      setError(`Please enter your ${PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.placeholder?.toLowerCase() ?? "payment reference"}.`);
+                      return;
+                    }
+                    if (!verified) {
+                      setError("Please wait for payment verification to complete.");
+                      return;
+                    }
+                  }
+                  setError(null);
+                  setStep(3);
+                }}
                 className="space-y-5 bg-card border border-border rounded-[1.5rem] p-6 md:p-8 shadow-xl"
               >
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -1096,6 +1110,91 @@ export default function BookPage() {
                   <Textarea id="notes" name="notes" value={form.notes} onChange={handleChange} placeholder="Any extra info for the driver…" rows={3} className="rounded-xl resize-none" />
                 </div>
 
+                {/* Payment method — selected here, locked on confirm step */}
+                <div className="space-y-4 pt-2 border-t border-border">
+                  <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted-foreground">
+                    How would you like to pay?
+                  </h2>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {availablePaymentMethods.map((pm) => (
+                      <button
+                        key={pm.value}
+                        type="button"
+                        onClick={() => {
+                          setPaymentMethod(pm.value);
+                          setPaymentRef("");
+                          setVerified(false);
+                          setVerifyError(null);
+                          setError(null);
+                        }}
+                        className={`flex items-center gap-2 px-3 py-3 rounded-xl border-2 font-bold text-sm transition-all ${
+                          paymentMethod === pm.value
+                            ? "bg-primary text-white border-primary shadow-md"
+                            : "bg-card text-muted-foreground border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {pm.icon}
+                        <span className="leading-tight">{pm.label}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {paymentMethod !== "card" && (() => {
+                    const pm = availablePaymentMethods.find((m) => m.value === paymentMethod)!;
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">{pm.help}</p>
+                        <div className="relative">
+                          <Input
+                            value={paymentRef}
+                            onChange={(e) => setPaymentRef(e.target.value)}
+                            placeholder={pm.placeholder}
+                            className="rounded-xl h-12 pr-10"
+                            autoComplete="off"
+                          />
+                          {verifying && (
+                            <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-muted-foreground pointer-events-none" />
+                          )}
+                          {!verifying && verified && (
+                            <CheckCircle2 className="absolute right-3 top-3.5 w-5 h-5 text-emerald-600 pointer-events-none" />
+                          )}
+                        </div>
+                        {!verifying && verifyError && (
+                          <p className="text-sm text-destructive flex items-center gap-1.5">
+                            <AlertTriangle className="w-4 h-4 shrink-0" /> {verifyError}
+                          </p>
+                        )}
+                        {!verifying && verified && (
+                          <p className="text-sm text-emerald-700 font-medium flex items-center gap-1.5">
+                            <CheckCircle2 className="w-4 h-4 shrink-0" /> Verified — you're good to book
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {paymentMethod === "card" && (
+                    <>
+                      <p className="text-xs text-muted-foreground">{PAYMENT_METHODS[0].help}</p>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                        <span>
+                          <strong>Cancellation policy:</strong> if you cancel before a driver is assigned,
+                          the fare is added to your <strong>BookaWaka wallet</strong> as credit (linked to your phone number)
+                          — not refunded to your card. You can spend wallet credit on your next booking.
+                          If a driver has already been assigned, no credit is issued.
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {error && (
+                  <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-sm font-medium">
+                    {error}
+                  </div>
+                )}
+
                 <Button type="submit" size="lg" className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full h-14 font-extrabold text-base shadow-lg">
                   Review Booking <ChevronRight className="w-5 h-5 ml-2" />
                 </Button>
@@ -1158,6 +1257,17 @@ export default function BookPage() {
                     )}
                   </>
                 )}
+                <hr className="border-border" />
+                <Row
+                  label="Payment"
+                  value={
+                    walletCoversFull && useWalletCredit
+                      ? "BookaWaka Wallet"
+                      : paymentMethod === "card"
+                      ? "Card (Stripe)"
+                      : `${PAYMENT_METHODS.find((m) => m.value === paymentMethod)?.label ?? paymentMethod}${paymentRef ? ` — ${paymentRef}` : ""}`
+                  }
+                />
               </div>
 
               {error && (
@@ -1166,9 +1276,8 @@ export default function BookPage() {
                 </div>
               )}
 
-              {/* Payment method selection */}
+              {/* Wallet + confirm actions — payment method locked from previous step */}
               <div className="space-y-4">
-                {/* Wallet balance — shown when passenger has credit */}
                 {(walletLoading || walletBalance > 0) && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-4">
@@ -1198,7 +1307,7 @@ export default function BookPage() {
                           )}
                         </div>
                       </div>
-                      {!walletLoading && walletBalance > 0 && hasAmount && (
+                      {!walletLoading && walletBalance > 0 && hasAmount && paymentMethod === "card" && (
                         <div className="flex items-center gap-2 shrink-0">
                           <Label htmlFor="use-wallet-credit" className="text-xs font-bold text-emerald-800 cursor-pointer">
                             Use wallet credit
@@ -1212,87 +1321,6 @@ export default function BookPage() {
                       )}
                     </div>
                   </div>
-                )}
-
-                <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted-foreground">
-                  {walletCoversFull && useWalletCredit ? "Confirm payment" : "How would you like to pay?"}
-                </h2>
-
-                {!(walletCoversFull && useWalletCredit) && (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {availablePaymentMethods.map((pm) => (
-                    <button
-                      key={pm.value}
-                      type="button"
-                      onClick={() => {
-                        setPaymentMethod(pm.value);
-                        setPaymentRef("");
-                        setVerified(false);
-                        setVerifyError(null);
-                        setError(null);
-                      }}
-                      className={`flex items-center gap-2 px-3 py-3 rounded-xl border-2 font-bold text-sm transition-all ${
-                        paymentMethod === pm.value
-                          ? "bg-primary text-white border-primary shadow-md"
-                          : "bg-card text-muted-foreground border-border hover:border-primary/50"
-                      }`}
-                    >
-                      {pm.icon}
-                      <span className="leading-tight">{pm.label}</span>
-                    </button>
-                  ))}
-                </div>
-                )}
-
-                {/* Reference input for non-card methods */}
-                {!(walletCoversFull && useWalletCredit) && paymentMethod !== "card" && (() => {
-                  const pm = availablePaymentMethods.find((m) => m.value === paymentMethod)!;
-                  return (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">{pm.help}</p>
-                      <div className="relative">
-                        <Input
-                          value={paymentRef}
-                          onChange={(e) => setPaymentRef(e.target.value)}
-                          placeholder={pm.placeholder}
-                          className="rounded-xl h-12 pr-10"
-                          autoComplete="off"
-                        />
-                        {verifying && (
-                          <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-muted-foreground pointer-events-none" />
-                        )}
-                        {!verifying && verified && (
-                          <CheckCircle2 className="absolute right-3 top-3.5 w-5 h-5 text-emerald-600 pointer-events-none" />
-                        )}
-                      </div>
-                      {!verifying && verifyError && (
-                        <p className="text-sm text-destructive flex items-center gap-1.5">
-                          <AlertTriangle className="w-4 h-4 shrink-0" /> {verifyError}
-                        </p>
-                      )}
-                      {!verifying && verified && (
-                        <p className="text-sm text-emerald-700 font-medium flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 shrink-0" /> Verified — you're good to book
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Card help text */}
-                {!(walletCoversFull && useWalletCredit) && paymentMethod === "card" && (
-                  <>
-                    <p className="text-xs text-muted-foreground">{PAYMENT_METHODS[0].help}</p>
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                      <span>
-                        <strong>Cancellation policy:</strong> if you cancel before a driver is assigned,
-                        the fare is added to your <strong>BookaWaka wallet</strong> as credit (linked to your phone number)
-                        — not refunded to your card. You can spend wallet credit on your next booking.
-                        If a driver has already been assigned, no credit is issued.
-                      </span>
-                    </div>
-                  </>
                 )}
 
                 {/* Action buttons */}

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
-import { getUncachableResendClient } from "../lib/resend";
+import { sendMailerSendEmail } from "../lib/mailersend";
 import { registerScheduledDispatch } from "../lib/scheduler";
 import { debitWallet, readWalletBalanceCents } from "../lib/wallet";
 
@@ -506,9 +506,16 @@ bookingsRouter.post("/bookings", async (req, res) => {
     // Card payment bookings also always get website emails.
     const saSendsEmails = !isCardPayment && !isScheduled;
     if (!saSendsEmails) {
-      sendBookingEmails({ booking, companyName, companyEmail, passengerEmail, isScheduled, isCardPayment }).catch(
-        (e) => req.log.error({ e }, "Email send failed")
-      );
+      sendBookingEmails({
+        booking,
+        companyId,
+        companyName,
+        companyEmail,
+        passengerEmail,
+        isScheduled,
+        isCardPayment,
+        log: req.log,
+      }).catch((e) => req.log.error({ e }, "Email send failed"));
     } else {
       req.log.info({ bookingId }, "Skipping website emails — SA portal handles ASAP cash booking notifications");
     }
@@ -552,92 +559,147 @@ bookingsRouter.get("/bookings/:bookingId/payment-status", async (req, res) => {
 
 async function sendBookingEmails({
   booking,
+  companyId,
   companyName,
   companyEmail,
   passengerEmail,
   isScheduled,
   isCardPayment,
+  log,
 }: {
   booking: any;
+  companyId?: string;
   companyName?: string;
   companyEmail?: string;
   passengerEmail?: string;
   isScheduled?: boolean;
   isCardPayment?: boolean;
+  log?: { warn: (obj: object, msg?: string) => void };
 }) {
-  const { client } = await getUncachableResendClient();
-
-  const scheduledLabel = booking.ScheduledFor
-    ? new Date(booking.ScheduledFor).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland" })
-    : "As soon as possible";
-
   const paymentMethodLabel: Record<string, string> = {
     card: "Card (Stripe)",
     account: "Account",
     acc: "ACC",
     tm: "Total Mobility",
     giftcard: "Gift Card",
+    wallet: "BookaWaka Wallet",
   };
   const pmLabel = paymentMethodLabel[booking.paymentMethod] ?? booking.paymentMethod ?? "Account";
   const fareDisplay = booking.Fare ? `NZD $${parseFloat(booking.Fare).toFixed(2)}` : "";
 
+  const scheduledLabel = booking.ScheduledFor
+    ? new Date(booking.ScheduledFor).toLocaleString("en-NZ", { timeZone: "Pacific/Auckland" })
+    : "As soon as possible";
+
   const paymentNote = isCardPayment
-    ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;width:130px;">Payment</td><td style="padding:8px 0;color:#e67e00;font-weight:bold;">⏳ Awaiting card payment — not yet dispatched</td></tr>`
+    ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;width:130px;">Payment</td><td style="padding:8px 0;color:#e67e00;font-weight:bold;">Awaiting card payment — not yet dispatched</td></tr>`
     : `<tr><td style="padding:8px 0;font-weight:bold;color:#333;width:130px;">Payment</td><td style="padding:8px 0;color:#555;">${pmLabel}${fareDisplay ? ` — ${fareDisplay}` : ""}</td></tr>`;
 
-  const bookingHtml = `
+  const bookingDetailsHtml = `
+    <table style="width:100%;border-collapse:collapse;">
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;width:130px;">Booking ID</td><td style="padding:8px 0;color:#555;">${booking.BookingId}</td></tr>
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Service</td><td style="padding:8px 0;color:#555;">${booking.ServiceType ?? "Taxi"}</td></tr>
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Passenger</td><td style="padding:8px 0;color:#555;">${booking.PassengerName}</td></tr>
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Phone</td><td style="padding:8px 0;color:#555;">${booking.PassengerPhone}</td></tr>
+      ${booking.PassengerEmail ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;">Email</td><td style="padding:8px 0;color:#555;">${booking.PassengerEmail}</td></tr>` : ""}
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Pick Up</td><td style="padding:8px 0;color:#555;">${booking.PickAddress}</td></tr>
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Drop Off</td><td style="padding:8px 0;color:#555;">${booking.DropAddress}</td></tr>
+      <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Scheduled</td><td style="padding:8px 0;color:#555;">${scheduledLabel}</td></tr>
+      ${paymentNote}
+      ${booking.Info ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;">Notes</td><td style="padding:8px 0;color:#555;">${booking.Info}</td></tr>` : ""}
+    </table>
+  `;
+
+  if (isScheduled) {
+    let resolvedCompanyEmail = companyEmail?.trim() ?? "";
+    if (companyId) {
+      try {
+        const db = getDatabase();
+        const snap = await db.ref(`companyProfiles/${companyId}/email`).once("value");
+        const fromFirebase = snap.val();
+        if (typeof fromFirebase === "string" && fromFirebase.trim()) {
+          resolvedCompanyEmail = fromFirebase.trim();
+        }
+      } catch (err) {
+        log?.warn({ err, companyId }, "Could not fetch company email from Firebase");
+      }
+    }
+
+    if (resolvedCompanyEmail) {
+      await sendMailerSendEmail({
+        to: [{ email: resolvedCompanyEmail, name: companyName ?? "Operator" }],
+        subject: `[Pre-booking] ${booking.PassengerName} — ${booking.PickAddress}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+            <h2 style="color:#0a6b6b;margin-bottom:4px;">New Pre-booked Job</h2>
+            <p style="color:#666;margin-top:0;margin-bottom:24px;">via BookaWaka booking portal</p>
+            ${bookingDetailsHtml}
+            <p style="margin-top:24px;font-size:12px;color:#0a6b6b;"><strong>Pre-booked job</strong> — this booking is scheduled for the time above. It will be added to your dispatch queue automatically at that time.</p>
+          </div>
+        `,
+        fromName: "BookaWaka Bookings",
+      });
+    }
+
+    if (passengerEmail) {
+      await sendMailerSendEmail({
+        to: [{ email: passengerEmail, name: booking.PassengerName }],
+        subject: `Booking Confirmed — ${booking.BookingId}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+            <h2 style="color:#0a6b6b;">Your ride is scheduled!</h2>
+            <p>Hi ${booking.PassengerName}, your pre-booking with ${companyName ?? "your chosen company"} has been confirmed.</p>
+            <p style="color:#555;">Payment method: <strong>${pmLabel}</strong>${fareDisplay ? ` — ${fareDisplay}` : ""}.</p>
+            ${bookingDetailsHtml}
+            <p style="color:#666;margin-top:24px;">Questions? Reply to this email or contact the company directly.</p>
+          </div>
+        `,
+        fromName: "BookaWaka Bookings",
+      });
+    }
+    return;
+  }
+
+  const companyHtml = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
       <h2 style="color:#0a6b6b;margin-bottom:4px;">New Web Booking</h2>
       <p style="color:#666;margin-top:0;margin-bottom:24px;">via BookaWaka booking portal</p>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;width:130px;">Booking ID</td><td style="padding:8px 0;color:#555;">${booking.BookingId}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Service</td><td style="padding:8px 0;color:#555;">${booking.ServiceType ?? "Taxi"}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Passenger</td><td style="padding:8px 0;color:#555;">${booking.PassengerName}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Phone</td><td style="padding:8px 0;color:#555;">${booking.PassengerPhone}</td></tr>
-        ${booking.PassengerEmail ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;">Email</td><td style="padding:8px 0;color:#555;">${booking.PassengerEmail}</td></tr>` : ""}
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Pick Up</td><td style="padding:8px 0;color:#555;">${booking.PickAddress}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Drop Off</td><td style="padding:8px 0;color:#555;">${booking.DropAddress}</td></tr>
-        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Scheduled</td><td style="padding:8px 0;color:#555;">${scheduledLabel}</td></tr>
-        ${paymentNote}
-        ${booking.Info ? `<tr><td style="padding:8px 0;font-weight:bold;color:#333;">Notes</td><td style="padding:8px 0;color:#555;">${booking.Info}</td></tr>` : ""}
-      </table>
+      ${bookingDetailsHtml}
       ${isCardPayment
         ? `<p style="margin-top:24px;font-size:12px;color:#e67e00;">This booking will appear in your dispatch queue once the passenger completes card payment.</p>`
-        : isScheduled
-        ? `<p style="margin-top:24px;font-size:12px;color:#0a6b6b;"><strong>Pre-booked job</strong> — this booking is scheduled for the time above. It will be added to your dispatch queue automatically at that time. No action required now.</p>`
         : `<p style="margin-top:24px;font-size:12px;color:#999;">This booking has been added to your dispatch queue automatically.</p>`
       }
     </div>
   `;
 
-  const recipients: string[] = ["info@bookawaka.com"];
-  if (companyEmail) recipients.push(companyEmail);
+  const companyRecipients: { email: string; name?: string }[] = [{ email: "info@bookawaka.com", name: "BookaWaka Admin" }];
+  if (companyEmail) companyRecipients.push({ email: companyEmail, name: companyName });
 
-  await client.emails.send({
-    from: "BookaWaka Bookings <onboarding@resend.dev>",
-    to: recipients,
+  await sendMailerSendEmail({
+    to: companyRecipients,
     subject: `[New Booking] ${booking.PassengerName} — ${booking.PickAddress}`,
-    html: bookingHtml,
+    html: companyHtml,
+    fromName: "BookaWaka Bookings",
   });
 
   if (passengerEmail) {
     const passengerPaymentNote = isCardPayment
-      ? `<p style="color:#e67e00;font-weight:bold;">⏳ Your booking is reserved. Complete payment to confirm dispatch.</p>`
+      ? `<p style="color:#e67e00;font-weight:bold;">Your booking is reserved. Complete payment to confirm dispatch.</p>`
       : `<p style="color:#555;">Payment method: <strong>${pmLabel}</strong>${fareDisplay ? ` — ${fareDisplay}` : ""}.</p>`;
 
-    await client.emails.send({
-      from: "BookaWaka Bookings <onboarding@resend.dev>",
-      to: [passengerEmail],
+    await sendMailerSendEmail({
+      to: [{ email: passengerEmail, name: booking.PassengerName }],
       subject: `Booking ${isCardPayment ? "Reserved" : "Confirmed"} — ${booking.BookingId}`,
       html: `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
           <h2 style="color:#0a6b6b;">Your booking is ${isCardPayment ? "reserved" : "confirmed"}!</h2>
           <p>Hi ${booking.PassengerName}, your booking with ${companyName ?? "your chosen company"} has been received.</p>
           ${passengerPaymentNote}
-          ${bookingHtml}
+          ${bookingDetailsHtml}
           <p style="color:#666;">Questions? Reply to this email or contact the company directly.</p>
         </div>
       `,
+      fromName: "BookaWaka Bookings",
     });
   }
 }

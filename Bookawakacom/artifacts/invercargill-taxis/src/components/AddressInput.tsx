@@ -9,7 +9,9 @@ interface NominatimResult {
 }
 
 const NOMINATIM_COUNTRY_CODES = "nz";
-const NOMINATIM_VIEWBOX = "-168,-47,-166,-46";
+const NOMINATIM_BOUNDED = "0";
+const NOMINATIM_LIMIT = "8";
+const NOMINATIM_VIEWBOX = "166,-47,178,-34";
 
 export default function AddressInput({
   id,
@@ -48,6 +50,8 @@ export default function AddressInput({
         const params = new URLSearchParams({
           q: val,
           countrycodes: NOMINATIM_COUNTRY_CODES,
+          bounded: NOMINATIM_BOUNDED,
+          limit: NOMINATIM_LIMIT,
           viewbox: NOMINATIM_VIEWBOX,
         });
         const res = await fetch(`${import.meta.env.BASE_URL}api/geocode?${params}`);
