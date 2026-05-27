@@ -7,7 +7,11 @@ const geocodeRouter = Router();
 //  2. Bias results toward Invercargill / Southland with a viewbox
 //  3. Avoid browser CORS/rate-limit issues
 geocodeRouter.get("/geocode", async (req, res) => {
-  const { q } = req.query as { q?: string };
+  const { q, countrycodes, viewbox } = req.query as {
+    q?: string;
+    countrycodes?: string;
+    viewbox?: string;
+  };
   if (!q || q.trim().length < 3) {
     res.json([]);
     return;
@@ -17,12 +21,12 @@ geocodeRouter.get("/geocode", async (req, res) => {
     const url = new URL("https://nominatim.openstreetmap.org/search");
     url.searchParams.set("q", q.trim());
     url.searchParams.set("format", "json");
-    url.searchParams.set("countrycodes", "nz");
+    url.searchParams.set("countrycodes", countrycodes?.trim() || "nz");
     url.searchParams.set("limit", "6");
     url.searchParams.set("addressdetails", "0");
-    // Bias toward Southland / Invercargill — results inside box rank higher,
+    // Bias toward Invercargill / Southland — results inside box rank higher,
     // but results outside still appear if nothing local matches (bounded=0)
-    url.searchParams.set("viewbox", "167.0,-45.0,171.0,-47.8");
+    url.searchParams.set("viewbox", viewbox?.trim() || "-168,-47,-166,-46");
     url.searchParams.set("bounded", "0");
 
     const nomRes = await fetch(url.toString(), {
