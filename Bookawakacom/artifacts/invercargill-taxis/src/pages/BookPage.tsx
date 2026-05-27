@@ -1074,8 +1074,8 @@ export default function BookPage() {
                 <ActiveBookingAlert conflict={activeBooking} />
               )}
 
-              <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
-                <div className="min-w-0 order-1">
+              <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start overflow-visible">
+                <div className="min-w-0 order-1 relative z-20 overflow-visible">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1092,7 +1092,7 @@ export default function BookPage() {
                   setError(null);
                   setStep(3);
                 }}
-                className="space-y-5 bg-card border border-border rounded-[1.5rem] p-6 md:p-8 shadow-xl"
+                className="space-y-5 bg-card border border-border rounded-[1.5rem] p-6 md:p-8 shadow-xl overflow-visible"
               >
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1139,7 +1139,7 @@ export default function BookPage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 relative z-[9998]">
                   <Label htmlFor="dropAddress" className="font-bold text-sm flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-primary" />
                     {selectedService === "food" ? "Delivery Address" : "Drop-off Address"}
@@ -1384,7 +1384,7 @@ export default function BookPage() {
               </form>
                 </div>
 
-                <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8">
+                <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8 relative z-0">
                   <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
                 </div>
               </div>

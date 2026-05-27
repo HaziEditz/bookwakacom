@@ -282,7 +282,10 @@ export default function AddressInput({
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node | null;
+      if (!target || !containerRef.current) return;
+      if (containerRef.current.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => {
@@ -293,7 +296,11 @@ export default function AddressInput({
   }, []);
 
   return (
-    <div ref={containerRef} className="relative">
+    <div
+      ref={containerRef}
+      className="relative"
+      style={open ? { position: "relative", zIndex: 9999 } : undefined}
+    >
       <Input
         id={id}
         name={name}
@@ -317,7 +324,12 @@ export default function AddressInput({
         <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-muted-foreground pointer-events-none" />
       )}
       {open && results.length > 0 && (
-        <div className="absolute z-50 top-full mt-1 w-full bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto">
+        <div
+          className="absolute left-0 right-0 top-full mt-1 w-full bg-card border border-border rounded-xl shadow-xl overflow-hidden max-h-72 overflow-y-auto"
+          style={{ position: "absolute", zIndex: 9999 }}
+          role="listbox"
+          aria-label="Address suggestions"
+        >
           {results.map((r) => {
             const title = getPlaceTitle(r);
             const subtitle = getPlaceSubtitle(r);

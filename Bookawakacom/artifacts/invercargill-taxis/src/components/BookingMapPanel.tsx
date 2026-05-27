@@ -116,14 +116,14 @@ export default function BookingMapPanel({
   return (
     <div
       className="relative w-full rounded-[1.5rem] overflow-hidden border border-border shadow-xl bg-muted/30"
-      style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX }}
+      style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX, zIndex: 0 }}
     >
       <MapContainer
         key={mapKey}
         center={INVERCARGILL}
         zoom={DEFAULT_ZOOM}
         className="z-0"
-        style={{ height: MAP_PANEL_HEIGHT_PX, width: "100%" }}
+        style={{ height: MAP_PANEL_HEIGHT_PX, width: "100%", zIndex: 0 }}
         scrollWheelZoom
       >
         <TileLayer
