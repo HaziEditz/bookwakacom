@@ -170,6 +170,7 @@ export default function AddressInput({
   value,
   onChange,
   onCoordChange,
+  onActiveChange,
   placeholder,
   required,
 }: {
@@ -178,11 +179,14 @@ export default function AddressInput({
   value: string;
   onChange: (val: string) => void;
   onCoordChange?: (lat: number, lng: number) => void;
+  /** Fired when the input is focused or the suggestion dropdown is open. */
+  onActiveChange?: (active: boolean) => void;
   placeholder?: string;
   required?: boolean;
 }) {
   const [results, setResults] = useState<NominatimResult[]>([]);
   const [open, setOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -277,8 +281,13 @@ export default function AddressInput({
     setResults([]);
     setOpen(false);
     setSearching(false);
+    setFocused(false);
     latestQueryRef.current = "";
   };
+
+  useEffect(() => {
+    onActiveChange?.(focused || open);
+  }, [focused, open, onActiveChange]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -286,6 +295,7 @@ export default function AddressInput({
       if (!target || !containerRef.current) return;
       if (containerRef.current.contains(target)) return;
       setOpen(false);
+      setFocused(false);
     };
     document.addEventListener("mousedown", handler);
     return () => {
@@ -307,6 +317,7 @@ export default function AddressInput({
         value={value}
         onChange={handleInput}
         onFocus={() => {
+          setFocused(true);
           if (value.trim().length >= MIN_SEARCH_LENGTH) {
             if (results.length > 0) {
               setOpen(true);
@@ -314,6 +325,13 @@ export default function AddressInput({
               scheduleSearch(value);
             }
           }
+        }}
+        onBlur={() => {
+          window.setTimeout(() => {
+            if (!containerRef.current?.contains(document.activeElement)) {
+              setFocused(false);
+            }
+          }, 0);
         }}
         placeholder={placeholder}
         required={required}

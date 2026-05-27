@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const INVERCARGILL: [number, number] = [-46.4132, 168.3538];
 const DEFAULT_ZOOM = 13;
@@ -51,9 +52,11 @@ function FitMapView({ points }: { points: [number, number][] }) {
 export default function BookingMapPanel({
   pickup,
   dropoff,
+  className,
 }: {
   pickup: { lat: number; lng: number } | null;
   dropoff: { lat: number; lng: number } | null;
+  className?: string;
 }) {
   const [routeLine, setRouteLine] = useState<[number, number][]>([]);
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMin: number } | null>(null);
@@ -115,7 +118,10 @@ export default function BookingMapPanel({
 
   return (
     <div
-      className="relative w-full rounded-[1.5rem] overflow-hidden border border-border shadow-xl bg-muted/30"
+      className={cn(
+        "relative w-full rounded-[1.5rem] overflow-hidden border border-border shadow-xl bg-muted/30",
+        className
+      )}
       style={{ height: MAP_PANEL_HEIGHT_PX, minHeight: MAP_PANEL_HEIGHT_PX, zIndex: 0 }}
     >
       <MapContainer

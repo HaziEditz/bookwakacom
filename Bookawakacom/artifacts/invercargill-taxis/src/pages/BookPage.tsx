@@ -243,6 +243,9 @@ export default function BookPage() {
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
   const [pickCoords, setPickCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [pickAddressActive, setPickAddressActive] = useState(false);
+  const [dropAddressActive, setDropAddressActive] = useState(false);
+  const mapPointerEventsDisabled = pickAddressActive || dropAddressActive;
   const [fareEstimate, setFareEstimate] = useState<{ estimate: number; tariff: string; distanceKm: number } | null>(null);
   const [fareLoading, setFareLoading] = useState(false);
 
@@ -1075,7 +1078,10 @@ export default function BookPage() {
               )}
 
               <div className="flex flex-col lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start overflow-visible">
-                <div className="min-w-0 order-1 relative z-20 overflow-visible">
+                <div
+                  className="min-w-0 order-1 overflow-visible"
+                  style={{ position: "relative", zIndex: 10 }}
+                >
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1131,6 +1137,7 @@ export default function BookPage() {
                         value={form.pickAddress}
                         onChange={handleAddressChange("pickAddress")}
                         onCoordChange={handleCoordChange("pick")}
+                        onActiveChange={setPickAddressActive}
                         placeholder="Start typing your pickup location…"
                         required
                       />
@@ -1139,7 +1146,7 @@ export default function BookPage() {
                   )}
                 </div>
 
-                <div className="space-y-2 relative z-[9998]">
+                <div className="space-y-2">
                   <Label htmlFor="dropAddress" className="font-bold text-sm flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-primary" />
                     {selectedService === "food" ? "Delivery Address" : "Drop-off Address"}
@@ -1151,6 +1158,7 @@ export default function BookPage() {
                     value={form.dropAddress}
                     onChange={handleAddressChange("dropAddress")}
                     onCoordChange={handleCoordChange("drop")}
+                    onActiveChange={setDropAddressActive}
                     placeholder={selectedService === "food" ? "Your delivery address…" : "Where are you going?"}
                     required
                   />
@@ -1385,7 +1393,11 @@ export default function BookPage() {
                 </div>
 
                 <div className="order-2 mt-6 lg:mt-0 lg:sticky lg:top-8 relative z-0">
-                  <BookingMapPanel pickup={pickCoords} dropoff={dropCoords} />
+                  <BookingMapPanel
+                    pickup={pickCoords}
+                    dropoff={dropCoords}
+                    className={mapPointerEventsDisabled ? "pointer-events-none" : undefined}
+                  />
                 </div>
               </div>
             </div>
