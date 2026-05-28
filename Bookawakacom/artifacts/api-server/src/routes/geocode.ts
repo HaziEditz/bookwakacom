@@ -41,4 +41,52 @@ geocodeRouter.get("/geocode", async (req, res) => {
   }
 });
 
+/** Debug: call Nominatim directly with a fixed query to verify upstream connectivity. */
+geocodeRouter.get("/geocode-test", async (req, res) => {
+  const query = "Dee Street Invercargill";
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", query);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("countrycodes", "nz");
+  url.searchParams.set("limit", "8");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("namedetails", "1");
+
+  try {
+    const startedAt = Date.now();
+    const upstream = await fetch(url.toString(), {
+      headers: {
+        "User-Agent": "BookaWaka/1.0 (info@bookawaka.com)",
+        "Accept-Language": "en",
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    const rawText = await upstream.text();
+    let data: unknown;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = rawText;
+    }
+
+    res.json({
+      ok: upstream.ok,
+      query,
+      url: url.toString(),
+      status: upstream.status,
+      statusText: upstream.statusText,
+      elapsedMs: Date.now() - startedAt,
+      data,
+    });
+  } catch (err: any) {
+    req.log.error({ err }, "GET /geocode-test error");
+    res.status(502).json({
+      ok: false,
+      query,
+      url: url.toString(),
+      error: err.message ?? String(err),
+    });
+  }
+});
+
 export default geocodeRouter;
