@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Loader2 } from "lucide-react";
-import { Input } from "@/components/ui/input";
 
 interface NominatimAddress {
   house_number?: string;
@@ -223,6 +222,11 @@ export default function AddressInput({
         return;
       }
       const data: NominatimResult[] = await res.json();
+      console.log(`[AddressInput:${id}] API results received`, {
+        query: trimmed,
+        count: Array.isArray(data) ? data.length : 0,
+        sample: Array.isArray(data) ? data.slice(0, 2) : data,
+      });
       if (!Array.isArray(data) || latestQueryRef.current !== trimmed) {
         if (latestQueryRef.current === trimmed) {
           setResults([]);
@@ -231,7 +235,9 @@ export default function AddressInput({
         return;
       }
       setResults(data);
-      setOpen(data.length > 0);
+      const willOpen = data.length > 0;
+      console.log(`[AddressInput:${id}] setting open=${willOpen}, results.length=${data.length}`);
+      setOpen(willOpen);
     } catch {
       if (latestQueryRef.current === trimmed) {
         setResults([]);
@@ -290,6 +296,10 @@ export default function AddressInput({
   }, [focused, open, onActiveChange]);
 
   useEffect(() => {
+    console.log(`[AddressInput:${id}] state — open=${open}, results.length=${results.length}`);
+  }, [id, open, results.length]);
+
+  useEffect(() => {
     const handler = (e: MouseEvent) => {
       const target = e.target as Node | null;
       if (!target || !containerRef.current) return;
@@ -311,9 +321,10 @@ export default function AddressInput({
       className="relative"
       style={open ? { position: "relative", zIndex: 9999 } : undefined}
     >
-      <Input
+      <input
         id={id}
         name={name}
+        type="text"
         value={value}
         onChange={handleInput}
         onFocus={() => {
@@ -336,7 +347,7 @@ export default function AddressInput({
         placeholder={placeholder}
         required={required}
         autoComplete="off"
-        className="rounded-xl h-12 pr-10"
+        className="flex h-12 w-full rounded-xl border border-input bg-transparent px-3 py-2 text-base shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring md:text-sm pr-10"
       />
       {searching && (
         <Loader2 className="absolute right-3 top-3.5 w-5 h-5 animate-spin text-muted-foreground pointer-events-none" />
