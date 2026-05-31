@@ -1056,7 +1056,7 @@ function Home() {
           <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-sm font-medium text-background/50">
             <div data-testid="text-footer-copy">&copy; {new Date().getFullYear()} BookaWaka Transport Ltd. All rights reserved.</div>
             <div className="flex gap-6">
-              <a href="#" className="hover:text-white transition-colors" data-testid="link-footer-privacy">Privacy Policy</a>
+              <a href="/privacy-policy.html" className="hover:text-white transition-colors" data-testid="link-footer-privacy">Privacy Policy</a>
               <a href="#" className="hover:text-white transition-colors" data-testid="link-footer-terms">Terms of Service</a>
             </div>
           </div>
