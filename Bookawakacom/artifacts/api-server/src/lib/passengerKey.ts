@@ -1,3 +1,4 @@
+import type { DataSnapshot } from "firebase-admin/database";
 import { getDatabase } from "./firebase";
 
 type FirebaseDatabase = ReturnType<typeof getDatabase>;
@@ -78,7 +79,7 @@ async function scanWalletByPhone(
   if (!snap.exists()) return null;
 
   let found: string | null = null;
-  snap.forEach((child) => {
+  snap.forEach((child: DataSnapshot) => {
     if (found || !child.key) return;
     const w = child.val() as Record<string, unknown> | null;
     if (!w || typeof w !== "object") return;

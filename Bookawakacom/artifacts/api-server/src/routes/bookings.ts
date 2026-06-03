@@ -52,10 +52,6 @@ async function notifyFoodDispatch({
   }
 }
 
-function normalizeEmailKey(email: string): string {
-  return email.toLowerCase().replace(/\./g, ",").replace(/@/g, "__at__");
-}
-
 // SA dispatch HQ shows the time column from the BookingDateTime field, formatted
 // in NZ local time as `YYYY-MM-DD HH:mm:ss.` (note the trailing dot — that's
 // the literal C# DateTime.ToString() output the SA app uses).
