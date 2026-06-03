@@ -2,36 +2,15 @@ import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
 import { cancelScheduledDispatch, registerScheduledDispatch } from "../lib/scheduler";
 import { creditWallet } from "../lib/wallet";
+import { resolvePassengerWalletKey } from "../lib/passengerKey";
 
 const myRidesRouter = Router();
 
-function normalizeEmailKey(email: string): string {
-  return email.toLowerCase().replace(/\./g, ",").replace(/@/g, "__at__");
-}
-
-function normalizePhoneKey(phone: string): string {
-  return phone.replace(/[^0-9]/g, "");
-}
-
 async function resolvePassengerKey(
   db: ReturnType<typeof getDatabase>,
-  query: { key?: string; email?: string; phone?: string }
+  query: { key?: string; email?: string; phone?: string },
 ): Promise<string | null> {
-  if (query.key) return query.key;
-
-  if (query.email) {
-    const emailKey = normalizeEmailKey(query.email);
-    const snap = await db.ref(`passengerIndex/email/${emailKey}`).once("value");
-    return snap.val()?.key ?? null;
-  }
-
-  if (query.phone) {
-    const phoneKey = normalizePhoneKey(query.phone);
-    const snap = await db.ref(`passengerIndex/phone/${phoneKey}`).once("value");
-    return snap.val()?.key ?? null;
-  }
-
-  return null;
+  return resolvePassengerWalletKey(db, query);
 }
 
 myRidesRouter.get("/my-rides", async (req, res) => {

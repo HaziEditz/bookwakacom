@@ -2,6 +2,7 @@ import { Router } from "express";
 import { getDatabase } from "../lib/firebase";
 import { sendMailerSendEmail } from "../lib/mailersend";
 import { registerScheduledDispatch } from "../lib/scheduler";
+import { normalizeEmailKey } from "../lib/passengerKey";
 import { debitWallet, readWalletBalanceCents } from "../lib/wallet";
 import { findActiveBooking, normalizePhoneKey } from "../lib/active-booking-guard";
 import { searchNzPlaces } from "../lib/geocode-search";
@@ -254,10 +255,19 @@ bookingsRouter.post("/bookings", async (req, res) => {
   let isWalletOnly = false;
 
   const fareNum = amount != null && amount > 0 ? amount : 0;
-  if (useWallet && passengerKey && fareNum > 0 && paymentMethod === "card") {
+  const emailKey = passengerEmail?.trim()
+    ? normalizeEmailKey(passengerEmail.trim())
+    : undefined;
+
+  if (useWallet && fareNum > 0 && paymentMethod === "card") {
     try {
       const walletDb = getDatabase();
-      const balanceCents = await readWalletBalanceCents(walletDb, passengerKey);
+      const walletPassengerRef = {
+        key: passengerKey,
+        phone: normalizedPhone,
+        email: passengerEmail?.trim() ?? emailKey,
+      };
+      const balanceCents = await readWalletBalanceCents(walletDb, walletPassengerRef);
       const fareCents = Math.round(fareNum * 100);
       const spendCents = Math.min(balanceCents, fareCents);
       walletAmountApplied = +(spendCents / 100).toFixed(2);
@@ -265,7 +275,7 @@ bookingsRouter.post("/bookings", async (req, res) => {
       cardAmountDue = remainderCents > 0 ? +(remainderCents / 100).toFixed(2) : 0;
 
       if (spendCents >= fareCents) {
-        const debit = await debitWallet(walletDb, passengerKey, fareCents, {
+        const debit = await debitWallet(walletDb, walletPassengerRef, fareCents, {
           reason: "booking_payment",
           jobId: bookingId,
           companyId,
@@ -280,7 +290,10 @@ bookingsRouter.post("/bookings", async (req, res) => {
         walletAmountPending = walletAmountApplied;
       }
     } catch (err) {
-      req.log.warn({ err, passengerKey, bookingId }, "wallet spend read/debit failed");
+      req.log.warn(
+        { err, passengerKey, phone: normalizedPhone, bookingId },
+        "wallet spend read/debit failed",
+      );
       res.status(500).json({ error: "Could not apply wallet credit" });
       return;
     }

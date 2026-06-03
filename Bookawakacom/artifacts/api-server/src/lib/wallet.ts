@@ -1,6 +1,26 @@
 import { getDatabase } from "./firebase";
+import {
+  ensurePassengerIndexForWallet,
+  PassengerKeyQuery,
+  resolvePassengerWalletKey,
+} from "./passengerKey";
 
 type FirebaseDatabase = ReturnType<typeof getDatabase>;
+
+export type WalletPassengerRef = string | PassengerKeyQuery;
+
+async function resolveRef(
+  db: FirebaseDatabase,
+  ref: WalletPassengerRef,
+): Promise<string | null> {
+  const query: PassengerKeyQuery =
+    typeof ref === "string" ? { key: ref } : ref;
+  const resolved = await resolvePassengerWalletKey(db, query);
+  if (!resolved) {
+    console.warn("[Wallet] could not resolve passenger key", query);
+  }
+  return resolved;
+}
 
 /**
  * Effective wallet balance in cents. Uses the higher of `balance` (NZD dollars)
@@ -20,11 +40,15 @@ export function walletBalanceCents(data: Record<string, any> | null | undefined)
 
 export async function readWalletBalanceCents(
   db: FirebaseDatabase,
-  passengerKey: string
+  passengerRef: WalletPassengerRef,
 ): Promise<number> {
+  const passengerKey = await resolveRef(db, passengerRef);
+  if (!passengerKey) return 0;
   const snap = await db.ref(`passengerWallet/${passengerKey}`).once("value");
   return walletBalanceCents(snap.val());
 }
+
+export { resolvePassengerWalletKey };
 
 export type WalletEntryMeta = {
   reason: string;
@@ -34,14 +58,19 @@ export type WalletEntryMeta = {
 
 export async function debitWallet(
   db: FirebaseDatabase,
-  passengerKey: string,
+  passengerRef: WalletPassengerRef,
   cents: number,
-  meta: WalletEntryMeta
+  meta: WalletEntryMeta,
 ): Promise<
-  | { ok: true; entryId: string; newBalanceCents: number }
+  | { ok: true; entryId: string; newBalanceCents: number; passengerKey: string }
   | { ok: false; error: string }
 > {
   if (cents <= 0) return { ok: false, error: "Debit amount must be positive" };
+
+  const passengerKey = await resolveRef(db, passengerRef);
+  if (!passengerKey) {
+    return { ok: false, error: "Wallet not found for this passenger" };
+  }
 
   const walletRef = db.ref(`passengerWallet/${passengerKey}`);
   const entryRef = walletRef.child("entries").push();
@@ -84,19 +113,31 @@ export async function debitWallet(
     },
   });
 
-  return { ok: true, entryId, newBalanceCents };
+  const query: PassengerKeyQuery =
+    typeof passengerRef === "string" ? { key: passengerRef } : passengerRef;
+  await ensurePassengerIndexForWallet(db, passengerKey, {
+    phone: query.phone,
+    email: query.email,
+  });
+
+  return { ok: true, entryId, newBalanceCents, passengerKey };
 }
 
 export async function creditWallet(
   db: FirebaseDatabase,
-  passengerKey: string,
+  passengerRef: WalletPassengerRef,
   cents: number,
-  meta: WalletEntryMeta & { note?: string }
+  meta: WalletEntryMeta & { note?: string },
 ): Promise<
-  | { ok: true; entryId: string; newBalanceCents: number }
+  | { ok: true; entryId: string; newBalanceCents: number; passengerKey: string }
   | { ok: false; error: string }
 > {
   if (cents <= 0) return { ok: false, error: "Credit amount must be positive" };
+
+  const passengerKey = await resolveRef(db, passengerRef);
+  if (!passengerKey) {
+    return { ok: false, error: "Wallet not found for this passenger" };
+  }
 
   const walletRef = db.ref(`passengerWallet/${passengerKey}`);
   const entryRef = walletRef.child("entries").push();
@@ -139,5 +180,12 @@ export async function creditWallet(
     },
   });
 
-  return { ok: true, entryId, newBalanceCents };
+  const query: PassengerKeyQuery =
+    typeof passengerRef === "string" ? { key: passengerRef } : passengerRef;
+  await ensurePassengerIndexForWallet(db, passengerKey, {
+    phone: query.phone,
+    email: query.email,
+  });
+
+  return { ok: true, entryId, newBalanceCents, passengerKey };
 }

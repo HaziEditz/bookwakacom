@@ -29,28 +29,42 @@ async function applyPendingWalletDebit(
   }
 
   const normalizedPhone = rawPhone.replace(/[^0-9]/g, "");
-  const pkSnap = await db.ref(`passengerIndex/phone/${normalizedPhone}`).once("value");
-  const passengerKey: string | null = pkSnap.val()?.key ?? null;
-  if (!passengerKey) {
-    log.warn({ bookingId, companyId }, "wallet pending debit: passenger key not found");
-    return {};
-  }
+  const bookingKey =
+    booking.passengerKey ?? booking.PassengerKey ?? booking.passenger_key ?? null;
+  const bookingEmail = booking.passengerEmail ?? booking.PassengerEmail ?? null;
 
   const pendingCents = Math.round(Number(booking.walletAmountPending) * 100);
-  const debit = await debitWallet(db, passengerKey, pendingCents, {
-    reason: "booking_payment",
-    jobId: bookingId,
-    companyId,
-  });
+  const debit = await debitWallet(
+    db,
+    {
+      key: bookingKey ? String(bookingKey) : undefined,
+      phone: normalizedPhone,
+      email: bookingEmail ? String(bookingEmail) : undefined,
+    },
+    pendingCents,
+    {
+      reason: "booking_payment",
+      jobId: bookingId,
+      companyId,
+    },
+  );
 
   if (!debit.ok) {
-    log.error({ bookingId, companyId, passengerKey, err: debit.error }, "wallet pending debit failed after card payment");
+    log.error(
+      { bookingId, companyId, phone: normalizedPhone, err: debit.error },
+      "wallet pending debit failed after card payment",
+    );
     return {};
   }
 
   log.info(
-    { bookingId, companyId, passengerKey, walletAmount: booking.walletAmountPending },
-    "Wallet debit applied after card payment"
+    {
+      bookingId,
+      companyId,
+      passengerKey: debit.passengerKey,
+      walletAmount: booking.walletAmountPending,
+    },
+    "Wallet debit applied after card payment",
   );
 
   return {
