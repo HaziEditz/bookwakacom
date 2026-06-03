@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import AddressInput from "@/components/AddressInput";
 import BookingMapPanel from "@/components/BookingMapPanel";
+import { getOrCreatePassengerKey } from "@/lib/passengerKey";
 import {
   Car,
   Utensils,
@@ -198,14 +199,6 @@ const PAYMENT_METHODS: Array<{
     help: "Enter your gift card code to verify the available balance.",
   },
 ];
-
-function getOrCreatePassengerKey(): string {
-  const existing = localStorage.getItem("bw_passenger_key");
-  if (existing) return existing;
-  const key = `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  localStorage.setItem("bw_passenger_key", key);
-  return key;
-}
 
 export default function BookPage() {
   const [step, setStep] = useState(0);
@@ -1410,8 +1403,12 @@ export default function BookPage() {
           {/* Step 3: Confirm */}
           {step === 3 && (
             <div>
-              <button onClick={() => setStep(2)} className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6 font-medium">
-                <ArrowLeft className="w-4 h-4" /> Back
+              <button
+                type="button"
+                onClick={() => { setStep(2); setError(null); }}
+                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6 font-medium"
+              >
+                <ArrowLeft className="w-4 h-4" /> Back to edit details
               </button>
               <h1 className="text-3xl md:text-4xl font-display font-black text-foreground mb-2">Confirm booking</h1>
               <p className="text-muted-foreground font-medium mb-8">Check everything looks right before sending.</p>
@@ -1487,6 +1484,16 @@ export default function BookPage() {
 
               {/* Wallet + confirm actions — payment method locked from previous step */}
               <div className="space-y-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  onClick={() => { setStep(2); setError(null); }}
+                  className="w-full rounded-full h-12 font-bold"
+                >
+                  <ArrowLeft className="w-5 h-5 mr-2" /> Back to edit details
+                </Button>
+
                 {(walletLoading || walletBalance > 0) && (
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
                     <div className="flex items-start justify-between gap-4">
