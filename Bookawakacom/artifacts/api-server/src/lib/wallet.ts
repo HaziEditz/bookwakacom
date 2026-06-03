@@ -2,11 +2,20 @@ import { getDatabase } from "./firebase";
 
 type FirebaseDatabase = ReturnType<typeof getDatabase>;
 
+/**
+ * Effective wallet balance in cents. Uses the higher of `balance` (NZD dollars)
+ * and `balanceCents` so UI dollar balance and ledger cents stay in sync.
+ */
 export function walletBalanceCents(data: Record<string, any> | null | undefined): number {
   if (!data) return 0;
-  if (typeof data.balanceCents === "number") return Math.max(0, data.balanceCents);
-  if (typeof data.balance === "number") return Math.max(0, Math.round(data.balance * 100));
-  return 0;
+  let cents = 0;
+  if (typeof data.balance === "number" && !Number.isNaN(data.balance)) {
+    cents = Math.max(cents, Math.round(data.balance * 100));
+  }
+  if (typeof data.balanceCents === "number" && !Number.isNaN(data.balanceCents)) {
+    cents = Math.max(cents, Math.max(0, Math.round(data.balanceCents)));
+  }
+  return cents;
 }
 
 export async function readWalletBalanceCents(
@@ -39,20 +48,30 @@ export async function debitWallet(
   const entryId = entryRef.key!;
   const nowIso = new Date().toISOString();
 
-  const txResult = await walletRef.child("balanceCents").transaction((current: number | null) => {
-    const bal = typeof current === "number" ? current : 0;
+  const txResult = await walletRef.transaction((current: Record<string, any> | null) => {
+    const wallet = current ?? {};
+    const bal = walletBalanceCents(wallet);
     if (bal < cents) return;
-    return bal - cents;
+    const newBalanceCents = bal - cents;
+    return {
+      ...wallet,
+      balanceCents: newBalanceCents,
+      balance: +(newBalanceCents / 100).toFixed(2),
+      currency: wallet.currency ?? "NZD",
+    };
   });
 
   if (!txResult.committed) {
     return { ok: false, error: "Insufficient wallet balance" };
   }
 
-  const newBalanceCents = txResult.snapshot.val() as number;
+  const walletAfter = (txResult.snapshot.val() ?? {}) as Record<string, any>;
+  const newBalanceCents = walletBalanceCents(walletAfter);
+
   await walletRef.update({
     balance: +(newBalanceCents / 100).toFixed(2),
-    currency: "NZD",
+    balanceCents: newBalanceCents,
+    currency: walletAfter.currency ?? "NZD",
     updatedAt: nowIso,
     [`entries/${entryId}`]: {
       amount: -(cents / 100),
@@ -84,19 +103,29 @@ export async function creditWallet(
   const entryId = entryRef.key!;
   const nowIso = new Date().toISOString();
 
-  const txResult = await walletRef.child("balanceCents").transaction((current: number | null) => {
-    const bal = typeof current === "number" ? current : 0;
-    return bal + cents;
+  const txResult = await walletRef.transaction((current: Record<string, any> | null) => {
+    const wallet = current ?? {};
+    const bal = walletBalanceCents(wallet);
+    const newBalanceCents = bal + cents;
+    return {
+      ...wallet,
+      balanceCents: newBalanceCents,
+      balance: +(newBalanceCents / 100).toFixed(2),
+      currency: wallet.currency ?? "NZD",
+    };
   });
 
   if (!txResult.committed) {
     return { ok: false, error: "Wallet credit failed" };
   }
 
-  const newBalanceCents = txResult.snapshot.val() as number;
+  const walletAfter = (txResult.snapshot.val() ?? {}) as Record<string, any>;
+  const newBalanceCents = walletBalanceCents(walletAfter);
+
   await walletRef.update({
     balance: +(newBalanceCents / 100).toFixed(2),
-    currency: "NZD",
+    balanceCents: newBalanceCents,
+    currency: walletAfter.currency ?? "NZD",
     updatedAt: nowIso,
     [`entries/${entryId}`]: {
       amount: +(cents / 100).toFixed(2),
