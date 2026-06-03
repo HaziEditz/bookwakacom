@@ -37,6 +37,12 @@ interface NominatimResult {
 const MIN_SEARCH_LENGTH = 3;
 const SEARCH_TIMEOUT_MS = 5000;
 const SEARCH_DEBOUNCE_MS = 200;
+const ADDRESS_FOCUS_EVENT = "bookawaka-address-input-focus";
+
+/** Only one address field should show suggestions at a time (pickup vs drop-off). */
+function notifyAddressFocus(id: string) {
+  window.dispatchEvent(new CustomEvent(ADDRESS_FOCUS_EVENT, { detail: id }));
+}
 
 /** NZ-only search, biased toward Invercargill (centre -46.4132, 168.3538). */
 const NOMINATIM_COUNTRY_CODES = "nz";
@@ -222,11 +228,6 @@ export default function AddressInput({
         return;
       }
       const data: NominatimResult[] = await res.json();
-      console.log(`[AddressInput:${id}] API results received`, {
-        query: trimmed,
-        count: Array.isArray(data) ? data.length : 0,
-        sample: Array.isArray(data) ? data.slice(0, 2) : data,
-      });
       if (!Array.isArray(data) || latestQueryRef.current !== trimmed) {
         if (latestQueryRef.current === trimmed) {
           setResults([]);
@@ -235,9 +236,7 @@ export default function AddressInput({
         return;
       }
       setResults(data);
-      const willOpen = data.length > 0;
-      console.log(`[AddressInput:${id}] setting open=${willOpen}, results.length=${data.length}`);
-      setOpen(willOpen);
+      setOpen(data.length > 0);
     } catch {
       if (latestQueryRef.current === trimmed) {
         setResults([]);
@@ -249,7 +248,7 @@ export default function AddressInput({
         setSearching(false);
       }
     }
-  }, []);
+  }, [id]);
 
   const scheduleSearch = useCallback(
     (query: string) => {
@@ -296,8 +295,18 @@ export default function AddressInput({
   }, [focused, open, onActiveChange]);
 
   useEffect(() => {
-    console.log(`[AddressInput:${id}] state — open=${open}, results.length=${results.length}`);
-  }, [id, open, results.length]);
+    const onSiblingFocus = (e: Event) => {
+      const activeId = (e as CustomEvent<string>).detail;
+      if (activeId !== id) {
+        setOpen(false);
+        setFocused(false);
+        abortRef.current?.abort();
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+      }
+    };
+    window.addEventListener(ADDRESS_FOCUS_EVENT, onSiblingFocus);
+    return () => window.removeEventListener(ADDRESS_FOCUS_EVENT, onSiblingFocus);
+  }, [id]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -315,11 +324,13 @@ export default function AddressInput({
     };
   }, []);
 
+  const isActive = focused || open;
+
   return (
     <div
       ref={containerRef}
       className="relative"
-      style={open ? { position: "relative", zIndex: 9999 } : undefined}
+      style={isActive ? { position: "relative", zIndex: 9999 } : undefined}
     >
       <input
         id={id}
@@ -328,6 +339,7 @@ export default function AddressInput({
         value={value}
         onChange={handleInput}
         onFocus={() => {
+          notifyAddressFocus(id);
           setFocused(true);
           if (value.trim().length >= MIN_SEARCH_LENGTH) {
             if (results.length > 0) {
@@ -341,8 +353,9 @@ export default function AddressInput({
           window.setTimeout(() => {
             if (!containerRef.current?.contains(document.activeElement)) {
               setFocused(false);
+              setOpen(false);
             }
-          }, 0);
+          }, 150);
         }}
         placeholder={placeholder}
         required={required}

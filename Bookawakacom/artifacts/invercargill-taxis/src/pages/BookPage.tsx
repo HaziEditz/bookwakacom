@@ -245,7 +245,7 @@ export default function BookPage() {
   const [dropCoords, setDropCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pickAddressActive, setPickAddressActive] = useState(false);
   const [dropAddressActive, setDropAddressActive] = useState(false);
-  const mapPointerEventsDisabled = pickAddressActive || dropAddressActive;
+  const mapPointerEventsDisabled = pickAddressActive;
   const [fareEstimate, setFareEstimate] = useState<{ estimate: number; tariff: string; distanceKm: number } | null>(null);
   const [fareLoading, setFareLoading] = useState(false);
 
@@ -1118,7 +1118,9 @@ export default function BookPage() {
                   <Input id="passengerEmail" name="passengerEmail" type="email" value={form.passengerEmail} onChange={handleChange} placeholder="you@example.com" required className="rounded-xl h-12" />
                 </div>
 
-                <div className="space-y-2">
+                <div
+                  className={`space-y-2 relative ${pickAddressActive ? "z-[60]" : ""}`}
+                >
                   <Label htmlFor="pickAddress" className="font-bold text-sm flex items-center gap-2">
                     {selectedService === "food" ? <Store className="w-4 h-4 text-primary" /> : <MapPin className="w-4 h-4 text-primary" />}
                     {selectedService === "food" ? "Restaurant Address" : "Pickup Address"}
@@ -1146,7 +1148,9 @@ export default function BookPage() {
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div
+                  className={`space-y-2 relative ${dropAddressActive ? "z-[70]" : pickAddressActive ? "z-[1]" : ""}`}
+                >
                   <Label htmlFor="dropAddress" className="font-bold text-sm flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-primary" />
                     {selectedService === "food" ? "Delivery Address" : "Drop-off Address"}
