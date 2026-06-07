@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,39 @@ import {
   MapPin,
   Globe,
   Lock,
+  CreditCard,
 } from "lucide-react";
+
+type JoinPackage = {
+  id: string;
+  name: string;
+  billingType: string;
+  pricePerCar: number | null;
+  flatPrice: number | null;
+  minimumMonthly: number | null;
+  trialDays: number | null;
+  description: string;
+  modules: { taxi?: boolean; food?: boolean; freight?: boolean };
+};
+
+const REGISTER_URL = `${import.meta.env.BASE_URL}api/register`;
+const PACKAGES_URL = `${import.meta.env.BASE_URL}api/register/packages`;
+
+function formatPackagePrice(p: JoinPackage): string {
+  if (p.trialDays && p.trialDays > 0) return `${p.trialDays}-day free trial`;
+  if (p.billingType === "flat_annual" && p.flatPrice != null) return `$${p.flatPrice.toFixed(2)}/yr`;
+  if (p.billingType === "flat_monthly" && p.flatPrice != null) return `$${p.flatPrice.toFixed(2)}/mo`;
+  if (p.pricePerCar != null) return `$${p.pricePerCar.toFixed(2)}/car/mo`;
+  return "Contact us";
+}
+
+function packageModulesLabel(p: JoinPackage): string {
+  const mods: string[] = [];
+  if (p.modules?.taxi) mods.push("Taxi");
+  if (p.modules?.food) mods.push("Food");
+  if (p.modules?.freight) mods.push("Freight");
+  return mods.length ? mods.join(" · ") : "Platform access";
+}
 
 const SERVICE_TYPES = [
   { id: "taxi", label: "Taxi", icon: Car },
@@ -29,8 +61,6 @@ const SERVICE_TYPES = [
   { id: "towing", label: "Towing", icon: Truck },
   { id: "rental", label: "Rental", icon: KeyRound },
 ];
-
-const REGISTER_URL = `${import.meta.env.BASE_URL}api/register`;
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -44,9 +74,25 @@ export default function RegisterPage() {
     confirmPassword: "",
   });
   const [serviceTypes, setServiceTypes] = useState<string[]>([]);
+  const [packages, setPackages] = useState<JoinPackage[]>([]);
+  const [packageId, setPackageId] = useState("");
+  const [loadingPackages, setLoadingPackages] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [registeredCompanyId, setRegisteredCompanyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(PACKAGES_URL)
+      .then((r) => r.json())
+      .then((data) => {
+        const list = (data.packages || []) as JoinPackage[];
+        setPackages(list);
+        if (list.length === 1) setPackageId(list[0].id);
+      })
+      .catch(() => setError("Could not load subscription packages. Please refresh and try again."))
+      .finally(() => setLoadingPackages(false));
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
@@ -64,6 +110,11 @@ export default function RegisterPage() {
 
     if (!serviceTypes.length) {
       setError("Please select at least one service type.");
+      return;
+    }
+
+    if (!packageId) {
+      setError("Please select a subscription package.");
       return;
     }
 
@@ -91,10 +142,12 @@ export default function RegisterPage() {
           country: form.country,
           serviceTypes,
           password: form.password,
+          packageId,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Something went wrong. Please try again.");
+      setRegisteredCompanyId(data.companyId || null);
       setSubmitted(true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -122,11 +175,16 @@ export default function RegisterPage() {
                 <CheckCircle2 className="w-10 h-10" />
               </div>
               <h1 className="text-3xl md:text-4xl font-display font-black text-foreground mb-3">
-                Application submitted
+                Welcome to BookaWaka
               </h1>
               <p className="text-lg text-muted-foreground font-medium mb-4 max-w-md mx-auto">
-                Your application has been submitted. We will review and approve your account within 24 hours.
+                Your company has been registered and your subscription plan is active.
               </p>
+              {registeredCompanyId && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  Your company ID is <strong className="font-mono">{registeredCompanyId}</strong>.
+                </p>
+              )}
               <p className="text-sm text-muted-foreground mb-8">
                 A confirmation email has been sent to <strong>{form.email}</strong>.
               </p>
@@ -148,7 +206,7 @@ export default function RegisterPage() {
                 Register your company
               </h1>
               <p className="text-muted-foreground font-medium mb-8">
-                Sign up to join the BookaWaka platform. We'll review your application and get you onboarded.
+                Choose your plan, create your account, and start using BookaWaka.
               </p>
 
               <form
@@ -274,6 +332,56 @@ export default function RegisterPage() {
                       </label>
                     ))}
                   </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="font-bold text-sm flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-primary" />
+                    Subscription package <span className="text-destructive">*</span>
+                  </Label>
+                  {loadingPackages ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading plans…
+                    </div>
+                  ) : packages.length === 0 ? (
+                    <p className="text-sm text-destructive">No packages available right now. Please contact BookaWaka.</p>
+                  ) : (
+                    <div className="grid gap-3">
+                      {packages.map((p) => (
+                        <label
+                          key={p.id}
+                          htmlFor={`pkg-${p.id}`}
+                          className={`block rounded-xl border-2 p-4 cursor-pointer transition-all ${
+                            packageId === p.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:border-primary/40"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              id={`pkg-${p.id}`}
+                              type="radio"
+                              name="packageId"
+                              value={p.id}
+                              checked={packageId === p.id}
+                              onChange={() => setPackageId(p.id)}
+                              className="mt-1"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="font-bold text-sm">{p.name}</span>
+                                <span className="text-sm font-semibold text-primary">{formatPackagePrice(p)}</span>
+                              </div>
+                              {p.description && (
+                                <p className="text-xs text-muted-foreground mt-1">{p.description}</p>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-2">{packageModulesLabel(p)}</p>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4">

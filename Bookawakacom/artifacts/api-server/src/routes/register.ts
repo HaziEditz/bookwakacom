@@ -1,6 +1,11 @@
 import { Router } from "express";
 import { getDatabase, getAuth } from "../lib/firebase";
 import { sendMailerSendEmail } from "../lib/mailersend";
+import {
+  generateUniqueCompanyId,
+  provisionCompanyPlan,
+  type SuperPackage,
+} from "../lib/company-plan";
 
 const registerRouter = Router();
 
@@ -21,6 +26,33 @@ const TYPE_LABELS: Record<string, string> = {
   rental: "Rental",
 };
 
+registerRouter.get("/register/packages", async (req, res) => {
+  try {
+    const db = getDatabase();
+    const snap = await db.ref("superPackages").once("value");
+    const all = (snap.val() || {}) as Record<string, SuperPackage>;
+    const packages = Object.entries(all)
+      .filter(([, p]) => p && p.active !== false && p.showOnJoin !== false)
+      .map(([id, p]) => ({
+        id,
+        name: p.name,
+        billingType: p.billingType || "per_car_monthly",
+        pricePerCar: p.pricePerCar ?? p.monthlyPrice ?? null,
+        flatPrice: p.flatPrice ?? null,
+        minimumMonthly: p.minimumMonthly ?? null,
+        trialDays: p.trialDays ?? null,
+        description: (p as { description?: string }).description || "",
+        modules: p.modules || { taxi: true, food: false, freight: false },
+        sortOrder: p.sortOrder ?? 99,
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+    res.json({ packages });
+  } catch (err: unknown) {
+    req.log.error({ err }, "Failed to load registration packages");
+    res.status(500).json({ error: "Failed to load packages" });
+  }
+});
+
 registerRouter.post("/register", async (req, res) => {
   const {
     serviceTypes,
@@ -32,6 +64,8 @@ registerRouter.post("/register", async (req, res) => {
     city,
     country,
     password,
+    packageId,
+    contractedFleet,
   } = req.body as {
     serviceTypes?: string[];
     businessTypes?: string[];
@@ -42,6 +76,8 @@ registerRouter.post("/register", async (req, res) => {
     city?: string;
     country?: string;
     password?: string;
+    packageId?: string;
+    contractedFleet?: number;
   };
 
   const types = serviceTypes ?? businessTypes ?? [];
@@ -51,8 +87,28 @@ registerRouter.post("/register", async (req, res) => {
     return;
   }
 
+  if (!packageId) {
+    res.status(400).json({ error: "Please select a subscription package" });
+    return;
+  }
+
   if (password.length < 6) {
     res.status(400).json({ error: "Password must be at least 6 characters" });
+    return;
+  }
+
+  const db = getDatabase();
+  let pkg: SuperPackage | null = null;
+  try {
+    const pkgSnap = await db.ref(`superPackages/${packageId}`).once("value");
+    pkg = pkgSnap.val();
+    if (!pkg || pkg.active === false) {
+      res.status(400).json({ error: "Selected package is not available" });
+      return;
+    }
+  } catch (err: unknown) {
+    req.log.error({ err, packageId }, "Failed to load selected package");
+    res.status(500).json({ error: "Failed to validate package. Please try again." });
     return;
   }
 
@@ -62,6 +118,7 @@ registerRouter.post("/register", async (req, res) => {
   const submittedAt = new Date().toISOString();
 
   let authUid: string | undefined;
+  let companyId: string | undefined;
 
   try {
     const auth = getAuth();
@@ -101,49 +158,91 @@ registerRouter.post("/register", async (req, res) => {
     return;
   }
 
-  const record = {
-    ref: refId,
-    submittedAt,
-    status: "pending",
-    businessName,
-    companyName: businessName,
-    contactName,
-    ownerName: contactName,
-    email,
-    phone,
-    city,
-    country: country ?? "New Zealand",
-    serviceType,
-    serviceTypes: types,
-    businessTypes: types,
-    authUid,
-    source: "website",
-  };
-
   try {
-    const db = getDatabase();
+    companyId = await generateUniqueCompanyId(db);
+    const provisioned = await provisionCompanyPlan(db, {
+      companyId,
+      packageId,
+      pkg,
+      businessName,
+      contactName,
+      email,
+      phone,
+      city,
+      country: country ?? "New Zealand",
+      authUid,
+      contractedFleet: contractedFleet != null ? +contractedFleet : 0,
+      source: "website",
+      refId,
+    });
+
+    const record = {
+      ref: refId,
+      submittedAt,
+      status: provisioned.status,
+      companyId,
+      businessName,
+      companyName: businessName,
+      contactName,
+      ownerName: contactName,
+      email,
+      phone,
+      city,
+      country: country ?? "New Zealand",
+      serviceType,
+      serviceTypes: types,
+      businessTypes: types,
+      authUid,
+      packageId,
+      packageName: pkg.name,
+      trialEnd: provisioned.trialEnd,
+      trialEndDate: provisioned.trialEndDate,
+      source: "website",
+      _source: "firebase",
+    };
+
     await Promise.all([
       db.ref(`onboardRequests/${refId}`).set(record),
       db.ref(`registrations/${refId}`).set(record),
     ]);
 
-    req.log.info({ refId, businessName, serviceType, authUid }, "Operator registration saved");
-  } catch (err: any) {
-    req.log.error({ err }, "Failed to write registration to Firebase");
+    req.log.info(
+      { refId, companyId, businessName, packageId, status: provisioned.status, authUid },
+      "Operator registration provisioned",
+    );
+
+    sendRegistrationEmails({
+      record,
+      typeLabel,
+      email,
+      businessName,
+      contactName,
+      packageName: pkg.name,
+      companyId,
+    }).catch((e) => req.log.error({ e }, "Registration email failed"));
+
+    res.json({ success: true, ref: refId, companyId, status: provisioned.status });
+  } catch (err: unknown) {
+    req.log.error({ err, companyId, authUid }, "Failed to provision company registration");
     try {
       if (authUid) await getAuth().deleteUser(authUid);
     } catch (rollbackErr) {
-      req.log.error({ rollbackErr }, "Failed to roll back auth user after RTDB error");
+      req.log.error({ rollbackErr }, "Failed to roll back auth user after provisioning error");
+    }
+    if (companyId) {
+      try {
+        await Promise.all([
+          db.ref(`superClients/${companyId}`).remove(),
+          db.ref(`companySettings/${companyId}`).remove(),
+          db.ref(`companyBilling/${companyId}`).remove(),
+          db.ref(`superBilling/${companyId}`).remove(),
+        ]);
+      } catch (cleanupErr) {
+        req.log.error({ cleanupErr, companyId }, "Partial cleanup after failed registration");
+      }
     }
     res.status(500).json({ error: "Failed to save registration. Please try again." });
-    return;
   }
-
-  sendRegistrationEmails({ record, typeLabel, email, businessName, contactName }).catch((e) =>
-    req.log.error({ e }, "Registration email failed")
-  );
-
-  res.json({ success: true, ref: refId });
 });
 
 async function sendRegistrationEmails({
@@ -152,12 +251,16 @@ async function sendRegistrationEmails({
   email,
   businessName,
   contactName,
+  packageName,
+  companyId,
 }: {
   record: Record<string, unknown>;
   typeLabel: string;
   email: string;
   businessName: string;
   contactName: string;
+  packageName: string;
+  companyId: string;
 }) {
   const detailTable = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
@@ -165,6 +268,9 @@ async function sendRegistrationEmails({
       <p style="color:#666;margin-top:0;margin-bottom:24px;">via BookaWaka registration portal</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;width:140px;">Ref</td><td style="padding:8px 0;color:#555;font-family:monospace;">${record.ref}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Company ID</td><td style="padding:8px 0;color:#555;font-family:monospace;">${companyId}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Package</td><td style="padding:8px 0;color:#555;">${packageName}</td></tr>
+        <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Status</td><td style="padding:8px 0;color:#555;">${record.status}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Service Types</td><td style="padding:8px 0;color:#555;">${typeLabel}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Company Name</td><td style="padding:8px 0;color:#555;">${record.businessName}</td></tr>
         <tr><td style="padding:8px 0;font-weight:bold;color:#333;">Owner Name</td><td style="padding:8px 0;color:#555;">${record.contactName}</td></tr>
@@ -178,21 +284,21 @@ async function sendRegistrationEmails({
 
   await sendMailerSendEmail({
     to: [{ email: "info@bookawaka.com", name: "BookaWaka Admin" }],
-    subject: `[New Operator] ${businessName} — ${typeLabel}`,
+    subject: `[New Operator] ${businessName} — ${packageName}`,
     html: detailTable,
     fromName: "BookaWaka Registrations",
   });
 
   await sendMailerSendEmail({
     to: [{ email, name: contactName }],
-    subject: `Your BookaWaka application has been received — ${businessName}`,
+    subject: `Welcome to BookaWaka — ${businessName}`,
     html: `
       <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-        <h2 style="color:#0a6b6b;">Application submitted</h2>
+        <h2 style="color:#0a6b6b;">Welcome to BookaWaka</h2>
         <p>Hi ${contactName},</p>
         <p>Thank you for registering <strong>${businessName}</strong> on the BookaWaka platform.</p>
-        <p><strong>Your application has been submitted. We will review and approve your account within 24 hours.</strong></p>
-        <p>Your reference number is <strong style="font-family:monospace;">${record.ref}</strong>. Service types: ${typeLabel}.</p>
+        <p>Your company has been set up on the <strong>${packageName}</strong> plan.</p>
+        <p>Your company ID is <strong style="font-family:monospace;">${companyId}</strong> and reference is <strong style="font-family:monospace;">${record.ref}</strong>.</p>
         <p style="color:#666;font-size:13px;margin-top:24px;">Questions? Reply to this email or visit <a href="https://bookawaka.com">bookawaka.com</a>.</p>
       </div>
     `,
